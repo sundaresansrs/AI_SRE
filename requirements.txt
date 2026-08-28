@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pandas
+pyarrow
+numpy
+scikit-learn
+torch
+mlflow
+langgraph
+sentence-transformers
+qdrant-client
+kubernetes
+mcp<2
+PyGithub
+prometheus-api-client
+groq
+google-genai
