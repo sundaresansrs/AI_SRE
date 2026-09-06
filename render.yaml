@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ai-sre-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: AUTO_EXECUTE_ON_ACCEPT
+        value: "false"
+      - key: DASHBOARD_ORIGINS
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

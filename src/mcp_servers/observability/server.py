@@ -39,7 +39,7 @@ def instant_query(promql: str) -> list[dict[str, Any]] | str:
     try:
         return _prometheus_get("/api/v1/query", query=promql)["result"]
     except Exception as error:
-        return _prometheus_error(error)
+        raise RuntimeError(_prometheus_error(error)) from error
 
 
 @mcp.tool()
@@ -54,7 +54,7 @@ def range_query(promql: str, start: str, end: str, step: str) -> list[dict[str, 
             step=step,
         )["result"]
     except Exception as error:
-        return _prometheus_error(error)
+        raise RuntimeError(_prometheus_error(error)) from error
 
 
 @mcp.tool()
@@ -71,7 +71,7 @@ def list_targets() -> list[dict[str, Any]] | str:
             for target in targets
         ]
     except Exception as error:
-        return _prometheus_error(error)
+        raise RuntimeError(_prometheus_error(error)) from error
 
 
 @mcp.tool()
@@ -80,7 +80,7 @@ def list_alerts() -> list[dict[str, Any]] | str:
     try:
         return _prometheus_get("/api/v1/alerts")["alerts"]
     except Exception as error:
-        return _prometheus_error(error)
+        raise RuntimeError(_prometheus_error(error)) from error
 
 
 if __name__ == "__main__":

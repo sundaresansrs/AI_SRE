@@ -1,0 +1,218 @@
+[09/04/26 10:57:52] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 10:57:52] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 10:57:52] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 10:57:53] INFO     Processing request of type           server.py:733
+                             CallToolRequest                                   
+[09/04/26 10:57:54] INFO     Processing request of type           server.py:733
+                             CallToolRequest                                   
+Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+AUTO_EXECUTE_ON_ACCEPT= ''
+
+===== CASE 2: image_pull_failure =====
+APPLY: {"returncode": 0, "stdout": "deployment.apps/acc-test-2-image-pull created", "stderr": ""}
+KUBECTL_BEFORE: {"deployment": {"returncode": 0, "stdout": "NAME                    READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES                                           SELECTOR\nacc-test-2-image-pull   0/1     1            0           5s    app          registry.invalid/does-not-exist/acc-test:never   app=acc-test-2-image-pull", "stderr": ""}, "pods": {"returncode": 0, "stdout": "NAME                                     READY   STATUS         RESTARTS   AGE   IP            NODE                 NOMINATED NODE   READINESS GATES\nacc-test-2-image-pull-678975f4dc-tx6f4   0/1     ErrImagePull   0          6s    10.244.0.18   kind-control-plane   <none>           <none>", "stderr": ""}, "describe": {"returncode": 0, "stdout": "Name:                   acc-test-2-image-pull\nNamespace:              default\nCreationTimestamp:      Fri, 04 Sep 2026 10:57:42 +0530\nLabels:                 <none>\nAnnotations:            deployment.kubernetes.io/revision: 1\nSelector:               app=acc-test-2-image-pull\nReplicas:               1 desired | 1 updated | 1 total | 0 available | 1 unavailable\nStrategyType:           RollingUpdate\nMinReadySeconds:        0\nRollingUpdateStrategy:  25% max unavailable, 25% max surge\nPod Template:\n  Labels:  app=acc-test-2-image-pull\n  Containers:\n   app:\n    Image:         registry.invalid/does-not-exist/acc-test:never\n    Port:          <none>\n    Host Port:     <none>\n    Environment:   <none>\n    Mounts:        <none>\n  Volumes:         <none>\n  Node-Selectors:  <none>\n  Tolerations:     <none>\nConditions:\n  Type           Status  Reason\n  ----           ------  ------\n  Available      False   MinimumReplicasUnavailable\n  Progressing    True    ReplicaSetUpdated\nOldReplicaSets:  <none>\nNewReplicaSet:   acc-test-2-image-pull-678975f4dc (1/1 replicas created)\nEvents:\n  Type    Reason             Age   From                   Message\n  ----    ------             ----  ----                   -------\n  Normal  ScalingReplicaSet  6s    deployment-controller  Scaled up replica set acc-test-2-image-pull-678975f4dc from 0 to 1", "stderr": ""}}
+
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]
+Loading weights: 100%|##########| 103/103 [00:00<00:00, 6299.31it/s]
+[09/04/26 10:58:43] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 10:58:43] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 10:58:43] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 10:59:44] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 10:59:44] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 10:59:44] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+TIMING: {"elapsed_seconds": 42.519517099979566, "within_30_seconds": false}
+CLARIFICATION_INSTEAD_OF_INVESTIGATION: False
+CORRECTIONS_FIRED: []
+TOOL_CALLS: [{"tool": "list_deployments", "args": {"namespace": "default"}, "result": [{"name": "acc-test-2-image-pull", "desired_replicas": 1, "available_replicas": 0}]}, {"tool": "list_pods", "args": {"namespace": "default"}, "result": [{"name": "acc-test-2-image-pull-678975f4dc-tx6f4", "uid": "78e4b345-beae-45c0-8061-96e730055fb9", "status": "Pending"}]}]
+CLASSIFICATION: REVIEW
+TRUST_SCORE: 0.0
+DIAGNOSIS_START
+The deployment `acc-test-2-image-pull` in namespace `default` has 0 available replicas out of 1 desired. The associated pod `acc-test-2-image-pull-678975f4dc-tx6f4` is in a `Pending` state.
+DIAGNOSIS_END
+PERSISTED: {"id": 25, "classification": "REVIEW", "trust_score": 0.0, "executed": false, "execution_trigger": null}
+DELETE: {"returncode": 0, "stdout": "deployment.apps \"acc-test-2-image-pull\" deleted from default namespace", "stderr": ""}
+
+===== CASE 3: under_replicated =====
+APPLY: {"returncode": 0, "stdout": "deployment.apps/acc-test-3-under-replicated created", "stderr": ""}
+KUBECTL_BEFORE: {"deployment": {"returncode": 0, "stdout": "NAME                          READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES         SELECTOR\nacc-test-3-under-replicated   0/2     2            0           5s    app          nginx:latest   app=acc-test-3-under-replicated", "stderr": ""}, "pods": {"returncode": 0, "stdout": "NAME                                           READY   STATUS    RESTARTS   AGE   IP       NODE     NOMINATED NODE   READINESS GATES\nacc-test-3-under-replicated-86547cbc7f-jz8v9   0/1     Pending   0          6s    <none>   <none>   <none>           <none>\nacc-test-3-under-replicated-86547cbc7f-xbw9j   0/1     Pending   0          6s    <none>   <none>   <none>           <none>", "stderr": ""}, "describe": {"returncode": 0, "stdout": "Name:                   acc-test-3-under-replicated\nNamespace:              default\nCreationTimestamp:      Fri, 04 Sep 2026 10:58:32 +0530\nLabels:                 <none>\nAnnotations:            deployment.kubernetes.io/revision: 1\nSelector:               app=acc-test-3-under-replicated\nReplicas:               2 desired | 2 updated | 2 total | 0 available | 2 unavailable\nStrategyType:           RollingUpdate\nMinReadySeconds:        0\nRollingUpdateStrategy:  25% max unavailable, 25% max surge\nPod Template:\n  Labels:  app=acc-test-3-under-replicated\n  Containers:\n   app:\n    Image:      nginx:latest\n    Port:       <none>\n    Host Port:  <none>\n    Requests:\n      cpu:         100\n    Environment:   <none>\n    Mounts:        <none>\n  Volumes:         <none>\n  Node-Selectors:  <none>\n  Tolerations:     <none>\nConditions:\n  Type           Status  Reason\n  ----           ------  ------\n  Available      False   MinimumReplicasUnavailable\n  Progressing    True    ReplicaSetUpdated\nOldReplicaSets:  <none>\nNewReplicaSet:   acc-test-3-under-replicated-86547cbc7f (2/2 replicas created)\nEvents:\n  Type    Reason             Age   From                   Message\n  ----    ------             ----  ----                   -------\n  Normal  ScalingReplicaSet  6s    deployment-controller  Scaled up replica set acc-test-3-under-replicated-86547cbc7f from 0 to 2", "stderr": ""}}
+TIMING: {"elapsed_seconds": 33.587103800004115, "within_30_seconds": false}
+CLARIFICATION_INSTEAD_OF_INVESTIGATION: True
+CORRECTIONS_FIRED: []
+TOOL_CALLS: []
+CLASSIFICATION: REJECT
+TRUST_SCORE: 0.0
+DIAGNOSIS_START
+No tool results were provided in the conversation. Therefore, a diagnosis cannot be made as it must be grounded only in available tool results.
+DIAGNOSIS_END
+PERSISTED: {"id": 26, "classification": "REJECT", "trust_score": 0.0, "executed": false, "execution_trigger": null}
+DELETE: {"returncode": 0, "stdout": "deployment.apps \"acc-test-3-under-replicated\" deleted from default namespace", "stderr": ""}
+
+===== CASE 4: oom_killed =====
+APPLY: {"returncode": 0, "stdout": "deployment.apps/acc-test-4-oom-killed created", "stderr": ""}
+KUBECTL_BEFORE: {"deployment": {"returncode": 0, "stdout": "NAME                    READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES         SELECTOR\nacc-test-4-oom-killed   0/1     1            0           13s   app          nginx:latest   app=acc-test-4-oom-killed", "stderr": ""}, "pods": {"returncode": 0, "stdout": "NAME                                     READY   STATUS      RESTARTS     AGE   IP            NODE                 NOMINATED NODE   READINESS GATES\nacc-test-4-oom-killed-58dd57b577-mknq7   0/1     Completed   1 (7s ago)   13s   10.244.0.19   kind-control-plane   <none>           <none>", "stderr": ""}, "describe": {"returncode": 0, "stdout": "Name:                   acc-test-4-oom-killed\nNamespace:              default\nCreationTimestamp:      Fri, 04 Sep 2026 10:59:13 +0530\nLabels:                 <none>\nAnnotations:            deployment.kubernetes.io/revision: 1\nSelector:               app=acc-test-4-oom-killed\nReplicas:               1 desired | 1 updated | 1 total | 0 available | 1 unavailable\nStrategyType:           RollingUpdate\nMinReadySeconds:        0\nRollingUpdateStrategy:  25% max unavailable, 25% max surge\nPod Template:\n  Labels:  app=acc-test-4-oom-killed\n  Containers:\n   app:\n    Image:      nginx:latest\n    Port:       <none>\n    Host Port:  <none>\n    Command:\n      /bin/sh\n      -c\n      seq 1 10000000 | sort >/dev/null\n    Limits:\n      memory:      16Mi\n    Environment:   <none>\n    Mounts:        <none>\n  Volumes:         <none>\n  Node-Selectors:  <none>\n  Tolerations:     <none>\nConditions:\n  Type           Status  Reason\n  ----           ------  ------\n  Progressing    True    NewReplicaSetAvailable\n  Available      False   MinimumReplicasUnavailable\nOldReplicaSets:  <none>\nNewReplicaSet:   acc-test-4-oom-killed-58dd57b577 (1/1 replicas created)\nEvents:\n  Type    Reason             Age   From                   Message\n  ----    ------             ----  ----                   -------\n  Normal  ScalingReplicaSet  13s   deployment-controller  Scaled up replica set acc-test-4-oom-killed-58dd57b577 from 0 to 1", "stderr": ""}}
+TIMING: {"elapsed_seconds": 41.13642659998732, "within_30_seconds": false}
+CLARIFICATION_INSTEAD_OF_INVESTIGATION: True
+CORRECTIONS_FIRED: []
+TOOL_CALLS: []
+CLASSIFICATION: REJECT
+TRUST_SCORE: 0.0
+DIAGNOSIS_START
+No tool results were provided in the investigation conversation to ground a diagnosis. Therefore, a final SRE diagnosis cannot be made at this time.
+DIAGNOSIS_END
+PERSISTED: {"id": 27, "classification": "REJECT", "trust_score": 0.0, "executed": false, "execution_trigger": null}
+DELETE: {"returncode": 0, "stdout": "deployment.apps \"acc-test-4-oom-killed\" deleted from default namespace", "stderr": ""}
+
+===== CASE 5: no_real_issue =====
+APPLY: {"returncode": 0, "stdout": "deployment.apps/acc-test-5-healthy created", "stderr": ""}
+[09/04/26 11:00:34] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 11:00:34] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 11:00:34] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 11:01:22] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 11:01:22] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 11:01:22] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 11:02:14] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 11:02:14] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+[09/04/26 11:02:14] INFO     Processing request of type           server.py:733
+                             ListToolsRequest                                  
+KUBECTL_BEFORE: {"deployment": {"returncode": 0, "stdout": "NAME                 READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES         SELECTOR\nacc-test-5-healthy   1/1     1            1           5s    app          nginx:latest   app=acc-test-5-healthy", "stderr": ""}, "pods": {"returncode": 0, "stdout": "NAME                                  READY   STATUS    RESTARTS   AGE   IP            NODE                 NOMINATED NODE   READINESS GATES\nacc-test-5-healthy-675d559c74-mvl77   1/1     Running   0          5s    10.244.0.20   kind-control-plane   <none>           <none>", "stderr": ""}, "describe": {"returncode": 0, "stdout": "Name:                   acc-test-5-healthy\nNamespace:              default\nCreationTimestamp:      Fri, 04 Sep 2026 11:00:09 +0530\nLabels:                 <none>\nAnnotations:            deployment.kubernetes.io/revision: 1\nSelector:               app=acc-test-5-healthy\nReplicas:               1 desired | 1 updated | 1 total | 1 available | 0 unavailable\nStrategyType:           RollingUpdate\nMinReadySeconds:        0\nRollingUpdateStrategy:  25% max unavailable, 25% max surge\nPod Template:\n  Labels:  app=acc-test-5-healthy\n  Containers:\n   app:\n    Image:         nginx:latest\n    Port:          <none>\n    Host Port:     <none>\n    Environment:   <none>\n    Mounts:        <none>\n  Volumes:         <none>\n  Node-Selectors:  <none>\n  Tolerations:     <none>\nConditions:\n  Type           Status  Reason\n  ----           ------  ------\n  Available      True    MinimumReplicasAvailable\n  Progressing    True    NewReplicaSetAvailable\nOldReplicaSets:  <none>\nNewReplicaSet:   acc-test-5-healthy-675d559c74 (1/1 replicas created)\nEvents:\n  Type    Reason             Age   From                   Message\n  ----    ------             ----  ----                   -------\n  Normal  ScalingReplicaSet  5s    deployment-controller  Scaled up replica set acc-test-5-healthy-675d559c74 from 0 to 1", "stderr": ""}}
+TIMING: {"elapsed_seconds": 46.69815949999611, "within_30_seconds": false}
+CLARIFICATION_INSTEAD_OF_INVESTIGATION: True
+CORRECTIONS_FIRED: []
+TOOL_CALLS: []
+CLASSIFICATION: REJECT
+TRUST_SCORE: 0.0
+DIAGNOSIS_START
+No tool results were provided in the conversation. Therefore, a diagnosis cannot be made as it would not be grounded in available tool results.
+DIAGNOSIS_END
+PERSISTED: {"id": 28, "classification": "REJECT", "trust_score": 0.0, "executed": false, "execution_trigger": null}
+DELETE: {"returncode": 0, "stdout": "deployment.apps \"acc-test-5-healthy\" deleted from default namespace", "stderr": ""}
+
+===== CASE 6: resource_not_found =====
+KUBECTL_BEFORE: {"deployment": {"returncode": 0, "stdout": "", "stderr": ""}, "pods": {"returncode": 0, "stdout": "", "stderr": ""}, "describe": {"returncode": 1, "stdout": "", "stderr": "Error from server (NotFound): deployments.apps \"acc-test-6-not-found\" not found"}}
+TIMING: {"elapsed_seconds": 41.83202329999767, "within_30_seconds": false}
+CLARIFICATION_INSTEAD_OF_INVESTIGATION: True
+CORRECTIONS_FIRED: []
+TOOL_CALLS: []
+CLASSIFICATION: REJECT
+TRUST_SCORE: 0.0
+DIAGNOSIS_START
+No tool results have been provided in the conversation. Please provide the output of the executed tools.
+DIAGNOSIS_END
+PERSISTED: {"id": 29, "classification": "REJECT", "trust_score": 0.0, "executed": false, "execution_trigger": null}
+
+===== CASE 7: readiness_probe_failure =====
+APPLY: {"returncode": 0, "stdout": "deployment.apps/acc-test-7-readiness-probe created", "stderr": ""}
+Traceback (most recent call last):
+KUBECTL_BEFORE: {"deployment": {"returncode": 0, "stdout": "NAME                         READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES         SELECTOR\nacc-test-7-readiness-probe   0/1     1            0           8s    app          nginx:latest   app=acc-test-7-readiness-probe", "stderr": ""}, "pods": {"returncode": 0, "stdout": "NAME                                         READY   STATUS    RESTARTS   AGE   IP            NODE                 NOMINATED NODE   READINESS GATES\nacc-test-7-readiness-probe-8cbfbdfcc-qc2wq   0/1     Running   0          8s    10.244.0.21   kind-control-plane   <none>           <none>", "stderr": ""}, "describe": {"returncode": 0, "stdout": "Name:                   acc-test-7-readiness-probe\nNamespace:              default\nCreationTimestamp:      Fri, 04 Sep 2026 11:01:45 +0530\nLabels:                 <none>\nAnnotations:            deployment.kubernetes.io/revision: 1\nSelector:               app=acc-test-7-readiness-probe\nReplicas:               1 desired | 1 updated | 1 total | 0 available | 1 unavailable\nStrategyType:           RollingUpdate\nMinReadySeconds:        0\nRollingUpdateStrategy:  25% max unavailable, 25% max surge\nPod Template:\n  Labels:  app=acc-test-7-readiness-probe\n  Containers:\n   app:\n    Image:         nginx:latest\n    Port:          <none>\n    Host Port:     <none>\n    Readiness:     exec [/bin/sh -c exit 1] delay=1s timeout=1s period=2s #success=1 #failure=3\n    Environment:   <none>\n    Mounts:        <none>\n  Volumes:         <none>\n  Node-Selectors:  <none>\n  Tolerations:     <none>\nConditions:\n  Type           Status  Reason\n  ----           ------  ------\n  Available      False   MinimumReplicasUnavailable\n  Progressing    True    ReplicaSetUpdated\nOldReplicaSets:  <none>\nNewReplicaSet:   acc-test-7-readiness-probe-8cbfbdfcc (1/1 replicas created)\nEvents:\n  Type    Reason             Age   From                   Message\n  ----    ------             ----  ----                   -------\n  Normal  ScalingReplicaSet  9s    deployment-controller  Scaled up replica set acc-test-7-readiness-probe-8cbfbdfcc from 0 to 1", "stderr": ""}}
+  File "C:\AI-SRE\src\agents\graph.py", line 171, in call_llm_with_fallback
+    response = _groq_completion([
+               ^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\src\agents\graph.py", line 157, in _groq_completion
+    return groq_client.chat.completions.create(**arguments)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\groq\resources\chat\completions.py", line 466, in create
+    return self._post(
+           ^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\groq\_base_client.py", line 1284, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\groq\_base_client.py", line 1071, in request
+    raise self._make_status_error_from_response(err.response) from None
+groq.RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01khgx07thew7seyacpmpp1s5x` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199492, Requested 1952. Please try again in 10m23.808s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\AI-SRE\tmp_retest_cases_2_7.py", line 121, in <module>
+    state, incident = run_alert_and_persist(alert)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\src\agents\runner.py", line 47, in run_alert_and_persist
+    final_state = graph.invoke(_initial_graph_state(alert))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\langgraph\pregel\main.py", line 3913, in invoke
+    for chunk in self.stream(
+                 ^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\langgraph\pregel\main.py", line 2967, in stream
+    for _ in runner.tick(
+             ^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\langgraph\pregel\_runner.py", line 207, in tick
+    run_with_retry(
+  File "C:\AI-SRE\venv\Lib\site-packages\langgraph\pregel\_retry.py", line 617, in run_with_retry
+    return task.proc.invoke(task.input, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 707, in invoke
+    input = context.run(step.invoke, input, config, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 447, in invoke
+    ret = self.func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\src\agents\graph.py", line 687, in fix_proposer_node
+    updated_state = _with_node_result(
+                    ^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\src\agents\graph.py", line 439, in _with_node_result
+    text, provider = call_llm_with_fallback(prompt, node_name)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\src\agents\graph.py", line 180, in call_llm_with_fallback
+    return _gemini_fallback_text(prompt), "gemini"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\src\agents\graph.py", line 184, in _gemini_fallback_text
+    response = gemini_client.models.generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\google\genai\models.py", line 6270, in generate_content
+    response = self._generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\google\genai\models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\google\genai\_api_client.py", line 1747, in request
+    response = self._request(http_request, http_options, stream=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\google\genai\_api_client.py", line 1534, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\tenacity\__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\tenacity\__init__.py", line 371, in iter
+    result = action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\tenacity\__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\tenacity\__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_x64__qbz5n2kfra8p0\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_x64__qbz5n2kfra8p0\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "C:\AI-SRE\venv\Lib\site-packages\tenacity\__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "C:\AI-SRE\venv\Lib\site-packages\google\genai\_api_client.py", line 1511, in _request_once
+    errors.APIError.raise_for_response(response)
+  File "C:\AI-SRE\venv\Lib\site-packages\google\genai\errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+  File "C:\AI-SRE\venv\Lib\site-packages\google\genai\errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 38.920078526s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '38s'}]}}
+During task with name 'fix_proposer_node' and id 'b9ad1532-b670-78d1-230e-eb5ce02c0097'
