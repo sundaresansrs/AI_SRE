@@ -17,7 +17,10 @@ from src.executor.executor import execute_recommended_action
 DB_PATH = Path(__file__).resolve().with_name("ai_sre.db")
 DASHBOARD_ORIGINS = [
     origin.strip()
-    for origin in os.getenv("DASHBOARD_ORIGINS", "http://localhost:3000").split(",")
+    for origin in os.getenv(
+        "DASHBOARD_ORIGINS",
+        "http://localhost:3000,https://ai-sre-eight.vercel.app",
+    ).split(",")
     if origin.strip()
 ]
 logger = logging.getLogger(__name__)
