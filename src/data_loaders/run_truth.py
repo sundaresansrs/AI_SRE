@@ -107,11 +107,12 @@ def is_anomaly_for_batch(services: pd.Series, timestamps: pd.Series) -> pd.DataF
     if truth.empty or services.empty:
         return result
 
+    query_timestamps = pd.to_datetime(timestamps, errors="coerce").astype("datetime64[ns]")
     left = pd.DataFrame(
         {
             "_position": range(len(services)),
             "service_name": services.astype(str).to_numpy(),
-            "timestamp": pd.to_datetime(timestamps, errors="coerce").to_numpy(),
+            "timestamp": query_timestamps.to_numpy(dtype="datetime64[ns]"),
         }
     )
     valid_left = left[left["timestamp"].notna()].copy()
@@ -120,8 +121,11 @@ def is_anomaly_for_batch(services: pd.Series, timestamps: pd.Series) -> pd.DataF
 
     right = truth[["service_name", "fault_type", "start", "end"]].copy()
     right["service_name"] = right["service_name"].astype(str)
-    right["start"] = pd.to_datetime(right["start"], errors="coerce")
-    right["end"] = pd.to_datetime(right["end"], errors="coerce") + pd.to_timedelta(1, unit="ns")
+    right["start"] = pd.to_datetime(right["start"], errors="coerce").astype("datetime64[ns]")
+    right["end"] = (
+        pd.to_datetime(right["end"], errors="coerce").astype("datetime64[ns]")
+        + pd.to_timedelta(1, unit="ns")
+    ).astype("datetime64[ns]")
     right = right.dropna(subset=["start", "end"])
     if right.empty:
         return result
@@ -148,6 +152,8 @@ def is_anomaly_for_batch(services: pd.Series, timestamps: pd.Series) -> pd.DataF
     right = pd.DataFrame(segments, columns=["service_name", "fault_type", "start", "end"])
     if right.empty:
         return result
+    right["start"] = pd.to_datetime(right["start"], errors="coerce").astype("datetime64[ns]")
+    right["end"] = pd.to_datetime(right["end"], errors="coerce").astype("datetime64[ns]")
 
     valid_left = valid_left.sort_values(["timestamp", "service_name"], kind="mergesort")
     right = right.sort_values(["start", "service_name"], kind="mergesort")
