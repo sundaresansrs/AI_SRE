@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from src.data_loaders.business_loader import load_business
 from src.data_loaders.metric_loader import load_metric
@@ -21,6 +22,7 @@ def assert_standard_schema(df: pd.DataFrame) -> None:
     assert df["fault_type"].dtype == object
 
 
+@pytest.mark.live
 def test_business_loader(tmp_path: Path) -> None:
     csv_path = tmp_path / "sample_business.csv"
     csv_path.write_text(
@@ -38,6 +40,7 @@ def test_business_loader(tmp_path: Path) -> None:
     assert df["fault_type"].tolist() == ["memory_anomalies", "memory_anomalies"]
 
 
+@pytest.mark.live
 def test_business_loader_handles_quote_only_lines(tmp_path: Path) -> None:
     csv_path = tmp_path / "malformed_business.csv"
     csv_path.write_text(
@@ -56,6 +59,7 @@ def test_business_loader_handles_quote_only_lines(tmp_path: Path) -> None:
     assert df["fault_type"].tolist() == ["memory_anomalies", "memory_anomalies"]
 
 
+@pytest.mark.live
 def test_business_loader_uses_run_truth_for_known_service_outside_fault_window(tmp_path: Path) -> None:
     csv_path = tmp_path / "outside_window_business.csv"
     csv_path.write_text(
@@ -70,6 +74,7 @@ def test_business_loader_uses_run_truth_for_known_service_outside_fault_window(t
     assert df["fault_type"].tolist() == ["normal"]
 
 
+@pytest.mark.live
 def test_business_loader_uses_embedded_timestamp_for_real_run_truth_match(tmp_path: Path) -> None:
     csv_path = tmp_path / "real_window_business.csv"
     csv_path.write_text(
@@ -122,6 +127,7 @@ def test_metric_loader(tmp_path: Path) -> None:
     assert df["fault_type"].tolist() == ["normal", "normal"]
 
 
+@pytest.mark.live
 def test_metric_loader_uses_run_truth_for_known_service_in_window(tmp_path: Path) -> None:
     csv_path = tmp_path / "webservice1_0.0.0.1_docker_cpu_core_8_norm_pct_2021-07-01_2021-07-15.csv"
     csv_path.write_text(
@@ -151,6 +157,7 @@ def test_metric_loader_uses_run_truth_for_known_service_outside_fault_window(tmp
     assert df["fault_type"].tolist() == ["normal"]
 
 
+@pytest.mark.live
 def test_trace_loader(tmp_path: Path) -> None:
     csv_path = tmp_path / "trace_table_dbservice1_2021-07.csv"
     csv_path.write_text(
@@ -169,6 +176,7 @@ def test_trace_loader(tmp_path: Path) -> None:
     assert df["fault_type"].tolist() == ["memory_anomalies", "normal"]
 
 
+@pytest.mark.live
 def test_trace_loader_uses_run_truth_for_known_service_outside_fault_window(tmp_path: Path) -> None:
     csv_path = tmp_path / "trace_table_dbservice1_outside_fault.csv"
     csv_path.write_text(
