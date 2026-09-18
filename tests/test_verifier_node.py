@@ -9,6 +9,14 @@ from src.agents.graph import (
 )
 
 
+@pytest.fixture
+def offline_verifier_llm(monkeypatch):
+    monkeypatch.setattr(
+        "src.agents.graph.call_llm_with_fallback",
+        lambda prompt, node_name: ("offline verifier test reasoning", "test"),
+    )
+
+
 def _make_state(**overrides):
     state = {
         "alert": "",
@@ -30,7 +38,7 @@ def _make_state(**overrides):
     return state
 
 
-def test_verifier_rejects_when_no_evidence_and_no_rag_match():
+def test_verifier_rejects_when_no_evidence_and_no_rag_match(offline_verifier_llm):
     state = _make_state(
         alert="Namespace prod has an unrelated application issue",
         diagnosis="The issue is not related to DNS or Kubernetes control-plane startup; there are no relevant logs.",
@@ -46,7 +54,7 @@ def test_verifier_rejects_when_no_evidence_and_no_rag_match():
     assert actual["classification"] == "REJECT"
 
 
-def test_verifier_review_for_real_kube_system_case():
+def test_verifier_review_for_real_kube_system_case(offline_verifier_llm):
     state = _make_state(
         alert="Pod coredns-589f44dc88-jz8ft in kube-system is CrashLoopBackOff",
         plan="Inspect coredns pod status in kube-system and review relevant logs.",
@@ -84,7 +92,7 @@ def test_verifier_review_for_real_kube_system_case():
     assert actual["classification"] == "REVIEW"
 
 
-def test_verifier_accepts_when_strong_rag_and_tool_evidence_both_present():
+def test_verifier_accepts_when_strong_rag_and_tool_evidence_both_present(offline_verifier_llm):
     real_chunk_text = (
         "https://web.archive.org/web/20211201033341/https://codeascraft.com/2012/01/23/solr-bittorrent-index-replication/ "
         "Title: Etsy: Sending multicast traffic without properly configured switches causes a global outage. "
@@ -155,6 +163,7 @@ def test_action_validation_rejects_hallucinated_deployment_target():
     assert any("not observed" in entry.lower() or "not found" in entry.lower() for entry in log)
 
 
+@pytest.mark.live
 def test_real_coredns_graph_run_has_valid_action_recommendation():
     state = _make_state(
         alert="Pod coredns-589f44dc88-jz8ft in kube-system is CrashLoopBackOff",
