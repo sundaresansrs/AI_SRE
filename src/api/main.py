@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 
@@ -168,9 +168,22 @@ def create_incident(payload: IncidentCreate) -> dict[str, Any]:
     return persist_incident(payload.model_dump())
 
 
-def persist_incident(fields: dict[str, Any]) -> dict[str, Any]:
+def persist_incident(fields: dict[str, Any], *, trusted_graph: bool = False) -> dict[str, Any]:
     created_at = utc_now()
-    approval_status = fields.get("approval_status") or "pending"
+    if trusted_graph:
+        decision_fields = fields
+        approval_status = fields.get("approval_status") or "pending"
+    else:
+        decision_fields = {
+            "trust_score": None,
+            "classification": None,
+            "verifier_reasoning": None,
+            "recommended_action": None,
+            "action_namespace": None,
+            "action_deployment_name": None,
+            "action_replicas": None,
+        }
+        approval_status = "pending"
 
     with get_db_connection() as conn:
         cursor = conn.execute(
@@ -195,27 +208,27 @@ def persist_incident(fields: dict[str, Any]) -> dict[str, Any]:
                 fields["alert"],
                 fields.get("diagnosis"),
                 fields.get("proposed_fix"),
-                fields.get("trust_score"),
-                fields.get("classification"),
-                fields.get("verifier_reasoning"),
+                decision_fields.get("trust_score"),
+                decision_fields.get("classification"),
+                decision_fields.get("verifier_reasoning"),
                 fields.get("plan"),
                 created_at,
                 approval_status,
-                fields.get("recommended_action"),
-                fields.get("action_namespace"),
-                fields.get("action_deployment_name"),
-                fields.get("action_replicas"),
+                decision_fields.get("recommended_action"),
+                decision_fields.get("action_namespace"),
+                decision_fields.get("action_deployment_name"),
+                decision_fields.get("action_replicas"),
             ),
         )
         incident_id = cursor.lastrowid
         state = {
-            "recommended_action": fields.get("recommended_action"),
-            "action_namespace": fields.get("action_namespace"),
-            "action_deployment_name": fields.get("action_deployment_name"),
-            "action_replicas": fields.get("action_replicas"),
+            "recommended_action": decision_fields.get("recommended_action"),
+            "action_namespace": decision_fields.get("action_namespace"),
+            "action_deployment_name": decision_fields.get("action_deployment_name"),
+            "action_replicas": decision_fields.get("action_replicas"),
         }
-        if _auto_execute_enabled() and fields.get("classification") == "ACCEPT" and _action_is_eligible(state):
-            logger.info("Auto-execution enabled: executing incident %s with action %s", incident_id, fields.get("recommended_action"))
+        if _auto_execute_enabled() and decision_fields.get("classification") == "ACCEPT" and _action_is_eligible(state):
+            logger.info("Auto-execution enabled: executing incident %s with action %s", incident_id, decision_fields.get("recommended_action"))
             try:
                 execution_result = execute_recommended_action(state)
             except Exception as error:
@@ -246,6 +259,22 @@ def get_review_queue() -> list[dict[str, Any]]:
     return [_row_to_dict(row) for row in rows]
 
 
+@app.get("/incidents")
+def get_incident_history(
+    status: Literal["pending", "approved", "rejected"] | None = Query(default=None),
+) -> list[dict[str, Any]]:
+    query = "SELECT * FROM incidents"
+    parameters: tuple[str, ...] = ()
+    if status is not None:
+        query += " WHERE approval_status = ?"
+        parameters = (status,)
+    query += " ORDER BY created_at DESC"
+
+    with get_db_connection() as conn:
+        rows = conn.execute(query, parameters).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
 @app.get("/incidents/{incident_id}")
 def get_incident(incident_id: int) -> dict[str, Any]:
     with get_db_connection() as conn:
@@ -263,6 +292,8 @@ def execute_incident(incident_id: int) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail="incident not found")
         if bool(row["executed"]):
             raise HTTPException(status_code=409, detail="incident has already been executed")
+        if row["approval_status"] != "approved":
+            raise HTTPException(status_code=409, detail="incident must be approved before execution")
 
         state = {
             "recommended_action": row["recommended_action"],

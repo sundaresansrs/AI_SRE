@@ -133,7 +133,7 @@ def get_pod_events(namespace: str, pod_name: str) -> list[dict[str, str]] | str:
 
 @mcp.tool()
 def list_deployments(namespace: str) -> list[dict[str, Any]] | str:
-    """List deployment names with desired and available replica counts."""
+    """List deployment names and rollout state."""
     unavailable = _unavailable()
     if unavailable:
         return unavailable
@@ -144,6 +144,11 @@ def list_deployments(namespace: str) -> list[dict[str, Any]] | str:
                 "name": deployment.metadata.name,
                 "desired_replicas": deployment.spec.replicas or 0,
                 "available_replicas": deployment.status.available_replicas or 0,
+                "ready_replicas": deployment.status.ready_replicas or 0,
+                "updated_replicas": deployment.status.updated_replicas or 0,
+                "unavailable_replicas": deployment.status.unavailable_replicas or 0,
+                "generation": deployment.metadata.generation or 0,
+                "observed_generation": deployment.status.observed_generation or 0,
             }
             for deployment in deployments
         ]

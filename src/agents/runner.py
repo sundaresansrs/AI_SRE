@@ -46,5 +46,5 @@ def _incident_fields_from_graph(state: GraphState) -> dict[str, Any]:
 def run_alert_and_persist(alert: str) -> tuple[GraphState, dict[str, Any]]:
     """Run the real graph for an alert and persist its final state as an incident."""
     final_state = graph.invoke(_initial_graph_state(alert))
-    incident = persist_incident(_incident_fields_from_graph(final_state))
+    incident = persist_incident(_incident_fields_from_graph(final_state), trusted_graph=True)
     return final_state, incident

@@ -1,18 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 const REVIEW_QUEUE_URL = `${API_BASE_URL}/incidents/review-queue`;
+const INCIDENT_HISTORY_URL = `${API_BASE_URL}/incidents`;
+
+type IncidentView = "pending" | "approved" | "rejected" | "all";
 
 type ReviewIncident = {
   id: number;
   alert: string;
   trust_score: number | null;
   classification: string | null;
+  approval_status: "pending" | "approved" | "rejected";
   created_at: string;
   recommended_action: string | null;
   executed: boolean;
+  executed_at: string | null;
+  execution_result: ExecutionResult | null;
+};
+
+type DeploymentSnapshot = {
+  name?: string;
+  desired_replicas?: number;
+  available_replicas?: number;
+  ready_replicas?: number;
+  updated_replicas?: number;
+  unavailable_replicas?: number;
+  generation?: number;
+  observed_generation?: number;
+  error?: string;
+};
+
+type ExecutionResult = {
+  before_state?: DeploymentSnapshot | null;
+  after_state?: DeploymentSnapshot | null;
+  verification_status?: string;
+  [key: string]: unknown;
 };
 
 type QueueLoadState =
@@ -28,11 +53,15 @@ type ActionState = {
 };
 
 export default function ReviewQueuePage() {
+  const [view, setView] = useState<IncidentView>("pending");
   const [state, setState] = useState<QueueLoadState>({ status: "loading" });
   const [actionState, setActionState] = useState<Record<number, ActionState>>({});
 
-  async function loadQueue() {
-    const response = await fetch(REVIEW_QUEUE_URL);
+  const loadQueue = useCallback(async (selectedView: IncidentView = view) => {
+    const endpoint = selectedView === "pending"
+      ? REVIEW_QUEUE_URL
+      : `${INCIDENT_HISTORY_URL}${selectedView === "all" ? "" : `?status=${selectedView}`}`;
+    const response = await fetch(endpoint);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} ${response.statusText}`);
     }
@@ -45,7 +74,7 @@ export default function ReviewQueuePage() {
       return;
     }
     setState({ status: "ready", rows: payload as ReviewIncident[] });
-  }
+  }, [view]);
 
   async function handleRowAction(incidentId: number, action: "approve" | "reject" | "execute") {
     const endpoint = `${API_BASE_URL}/incidents/${incidentId}/${action}`;
@@ -99,12 +128,66 @@ export default function ReviewQueuePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadQueue]);
+
+  function classificationBadge(classification: string | null) {
+    const colors: Record<string, { background: string; color: string }> = {
+      ACCEPT: { background: "#e8f5e9", color: "#1b5e20" },
+      REVIEW: { background: "#fff8e1", color: "#8d6e00" },
+      REJECT: { background: "#ffebee", color: "#b71c1c" },
+    };
+    return colors[classification ?? ""] ?? { background: "#f5f5f5", color: "#616161" };
+  }
+
+  function approvalBadge(status: ReviewIncident["approval_status"]) {
+    const colors = {
+      pending: { background: "#f5f5f5", color: "#616161" },
+      approved: { background: "#e3f2fd", color: "#0d47a1" },
+      rejected: { background: "#ffebee", color: "#b71c1c" },
+    };
+    return colors[status];
+  }
+
+  function deploymentSummary(snapshot: DeploymentSnapshot) {
+    if (snapshot.error) {
+      return snapshot.error;
+    }
+    return `Desired ${snapshot.desired_replicas ?? "-"}, available ${snapshot.available_replicas ?? "-"}, ready ${snapshot.ready_replicas ?? "-"}, generation ${snapshot.generation ?? "-"}`;
+  }
 
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", maxWidth: 960, margin: "2rem auto", padding: "0 1rem" }}>
-      <h1>AI-SRE review queue</h1>
-      <p>Pending incidents awaiting review or eligible execution.</p>
+      <h1>AI-SRE incidents</h1>
+      <p>Review incidents and inspect execution outcomes.</p>
+
+      <nav aria-label="Incident views" style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
+        {(["pending", "approved", "rejected", "all"] as const).map((option) => {
+          const labels: Record<IncidentView, string> = {
+            pending: "Pending Review",
+            approved: "Approved",
+            rejected: "Rejected",
+            all: "All",
+          };
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setView(option)}
+              aria-pressed={view === option}
+              style={{
+                padding: "0.5rem 0.8rem",
+                border: "1px solid #bdbdbd",
+                borderRadius: 6,
+                background: view === option ? "#212121" : "white",
+                color: view === option ? "white" : "#212121",
+                cursor: "pointer",
+              }}
+            >
+              {labels[option]}
+            </button>
+          );
+        })}
+      </nav>
 
       {state.status === "loading" ? (
         <p data-testid="queue-loading">Loading review queue…</p>
@@ -172,9 +255,43 @@ export default function ReviewQueuePage() {
                 <p>
                   <strong>classification:</strong> {row.classification}
                 </p>
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", margin: "0.75rem 0" }}>
+                  <span style={{ ...classificationBadge(row.classification), padding: "0.25rem 0.5rem", borderRadius: 999, fontSize: "0.85rem", fontWeight: 600 }}>
+                    Classification: {row.classification ?? "Unknown"}
+                  </span>
+                  <span style={{ ...approvalBadge(row.approval_status), padding: "0.25rem 0.5rem", borderRadius: 999, fontSize: "0.85rem", fontWeight: 600 }}>
+                    Approval: {row.approval_status}
+                  </span>
+                  {row.executed ? (
+                    <span style={{ background: "#e0f2f1", color: "#00695c", padding: "0.25rem 0.5rem", borderRadius: 999, fontSize: "0.85rem", fontWeight: 600 }}>
+                      Executed{row.executed_at ? `: ${row.executed_at}` : ""}
+                    </span>
+                  ) : null}
+                </div>
                 <p>
                   <strong>created_at:</strong> {row.created_at}
                 </p>
+                {row.execution_result ? (
+                  <>
+                    {row.execution_result.before_state && row.execution_result.after_state ? (
+                      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", margin: "0.75rem 0" }}>
+                        <div style={{ flex: "1 1 260px", background: "#f5f5f5", padding: "0.75rem", borderRadius: 6 }}>
+                          <strong>Before</strong>
+                          <p style={{ marginBottom: 0 }}>{deploymentSummary(row.execution_result.before_state)}</p>
+                        </div>
+                        <div style={{ flex: "1 1 260px", background: "#e8f5e9", padding: "0.75rem", borderRadius: 6 }}>
+                          <strong>After</strong>
+                          <p style={{ marginBottom: 0 }}>{deploymentSummary(row.execution_result.after_state)}</p>
+                        </div>
+                      </div>
+                    ) : null}
+                    {row.execution_result.verification_status ? (
+                      <p>
+                        <strong>Verification:</strong> {row.execution_result.verification_status}
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
 
                 <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem", alignItems: "center" }}>
                   <button

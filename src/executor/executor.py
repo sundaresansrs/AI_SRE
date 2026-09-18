@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sys
+import time
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
@@ -14,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 VALID_ACTIONS = {"restart_deployment", "scale_deployment", "none"}
+VERIFICATION_TIMEOUT_SECONDS = float(os.getenv("EXECUTION_VERIFICATION_TIMEOUT_SECONDS", "30"))
+VERIFICATION_POLL_SECONDS = float(os.getenv("EXECUTION_VERIFICATION_POLL_SECONDS", "1"))
 
 
 def _server_parameters() -> StdioServerParameters:
@@ -40,6 +43,67 @@ async def _call_kubernetes_tool(tool_name: str, arguments: dict[str, Any]) -> An
             await session.initialize()
             result = await session.call_tool(tool_name, arguments)
             return _tool_result_value(result)
+
+
+def _deployment_snapshot(namespace: str, deployment_name: str) -> dict[str, Any]:
+    result = asyncio.run(_call_kubernetes_tool("list_deployments", {"namespace": namespace}))
+    if not isinstance(result, list):
+        return {"error": str(result)}
+    for deployment in result:
+        if isinstance(deployment, dict) and deployment.get("name") == deployment_name:
+            return deployment
+    return {
+        "error": "deployment not found",
+        "namespace": namespace,
+        "deployment_name": deployment_name,
+    }
+
+
+def _deployment_is_ready_for_action(
+    action: str,
+    snapshot: dict[str, Any],
+    before_state: dict[str, Any],
+    requested_replicas: int | None,
+) -> bool:
+    if snapshot.get("error"):
+        return False
+    if action == "scale_deployment":
+        return (
+            snapshot.get("desired_replicas") == requested_replicas
+            and snapshot.get("available_replicas") == requested_replicas
+        )
+    before_generation = before_state.get("generation", 0)
+    return (
+        snapshot.get("generation", 0) > before_generation
+        and snapshot.get("observed_generation", 0) >= snapshot.get("generation", 0)
+        and snapshot.get("available_replicas", 0) >= snapshot.get("desired_replicas", 0)
+    )
+
+
+def _verify_deployment_action(
+    action: str,
+    namespace: str,
+    deployment_name: str,
+    before_state: dict[str, Any],
+    requested_replicas: int | None,
+) -> tuple[dict[str, Any], str]:
+    deadline = time.monotonic() + VERIFICATION_TIMEOUT_SECONDS
+    after_state = _deployment_snapshot(namespace, deployment_name)
+    while time.monotonic() < deadline and not _deployment_is_ready_for_action(
+        action,
+        after_state,
+        before_state,
+        requested_replicas,
+    ):
+        time.sleep(VERIFICATION_POLL_SECONDS)
+        after_state = _deployment_snapshot(namespace, deployment_name)
+    status = "verified" if _deployment_is_ready_for_action(
+        action,
+        after_state,
+        before_state,
+        requested_replicas,
+    ) else "timeout"
+    return after_state, status
 
 
 def _missing_fields(action: str, state: dict[str, Any]) -> list[str]:
@@ -80,6 +144,12 @@ def execute_recommended_action(state: dict[str, Any]) -> dict[str, Any]:
         logger.warning("No MCP tool call: %s", reason)
         return {"executed": False, "reason": reason}
 
+    before_state = _deployment_snapshot(namespace, deployment_name)
+    if before_state.get("error"):
+        reason = f"unable to capture before state: {before_state['error']}"
+        logger.warning("No MCP tool call: %s", reason)
+        return {"executed": False, "reason": reason, "before_state": before_state, "after_state": None}
+
     arguments: dict[str, Any] = {
         "namespace": namespace,
         "deployment_name": deployment_name,
@@ -100,5 +170,17 @@ def execute_recommended_action(state: dict[str, Any]) -> dict[str, Any]:
         "action": action,
         "namespace": namespace,
         "deployment_name": deployment_name,
+    })
+    after_state, verification_status = _verify_deployment_action(
+        action,
+        namespace,
+        deployment_name,
+        before_state,
+        arguments.get("replicas"),
+    )
+    result.update({
+        "before_state": before_state,
+        "after_state": after_state,
+        "verification_status": verification_status,
     })
     return result
