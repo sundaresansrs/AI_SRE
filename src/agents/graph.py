@@ -4,6 +4,7 @@ import os
 import json
 import re
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
 from functools import lru_cache
 from pprint import pprint
 from pathlib import Path
@@ -15,6 +16,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from google import genai
+from google.genai import types
 from groq import APIStatusError, BadRequestError, Groq, RateLimitError
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -63,6 +65,7 @@ def _get_anomaly_model() -> Any:
 
 
 VALID_RECOMMENDED_ACTIONS = ("restart_deployment", "scale_deployment", "none")
+GEMINI_SYNTHESIS_FAILURE_PREFIX = "Tool investigation completed successfully, but final diagnosis synthesis failed"
 
 
 class GraphState(TypedDict):
@@ -81,6 +84,14 @@ class GraphState(TypedDict):
     tool_calls: list[dict[str, Any]]
     retrieved_chunks: list[dict[str, Any]]
     diagnosis_degraded: bool
+
+
+@dataclass(frozen=True)
+class MCPToolDescriptor:
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    owner_session: ClientSession
 
 
 def _engineer_final_features(rows: pd.DataFrame) -> pd.DataFrame:
@@ -225,22 +236,97 @@ async def _close_mcp_servers(stack: Any, sessions: dict[str, ClientSession]) -> 
     await stack.aclose()
 
 
-async def _fetch_mcp_tools(sessions: dict[str, ClientSession]) -> tuple[list[dict[str, Any]], dict[str, ClientSession]]:
-    tools: list[dict[str, Any]] = []
+async def _fetch_mcp_tools(
+    sessions: dict[str, ClientSession],
+) -> tuple[list[MCPToolDescriptor], dict[str, ClientSession]]:
+    tools: list[MCPToolDescriptor] = []
     owners: dict[str, ClientSession] = {}
     for session in sessions.values():
         response = await session.list_tools()
         for tool in response.tools:
-            tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description or "",
-                    "parameters": tool.inputSchema,
-                },
-            })
+            tools.append(MCPToolDescriptor(
+                name=tool.name,
+                description=tool.description or "",
+                input_schema=tool.inputSchema,
+                owner_session=session,
+            ))
             owners[tool.name] = session
     return tools, owners
+
+
+def _format_groq_tools(tools: list[MCPToolDescriptor]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema,
+            },
+        }
+        for tool in tools
+    ]
+
+
+def _format_gemini_tools(tools: list[MCPToolDescriptor]) -> list[types.Tool]:
+    return [
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters_json_schema=tool.input_schema,
+                )
+            ]
+        )
+        for tool in tools
+    ]
+
+
+def _parse_gemini_function_calls(response: types.GenerateContentResponse) -> list[dict[str, Any]]:
+    function_calls: list[dict[str, Any]] = []
+    for candidate in response.candidates or []:
+        content = candidate.content
+        for index, part in enumerate(content.parts if content else []):
+            function_call = part.function_call
+            if function_call and function_call.name:
+                function_calls.append({
+                    "name": function_call.name,
+                    "args": dict(function_call.args or {}),
+                    "call_id_or_index": function_call.id or index,
+                })
+    return function_calls
+
+
+def _build_gemini_function_response(
+    tool_name: str,
+    tool_result: Any,
+) -> types.Content:
+    return types.Content(
+        role="tool",
+        parts=[
+            types.Part.from_function_response(
+                name=tool_name,
+                response={"result": tool_result},
+            )
+        ],
+    )
+
+
+def _gemini_synthesis_failure_diagnosis(
+    tool_calls: list[dict[str, Any]],
+    error: Exception,
+) -> str:
+    tool_names = ", ".join(dict.fromkeys(
+        call.get("tool", "unknown")
+        for call in tool_calls
+        if call.get("tool")
+    )) or "no named tools"
+    return (
+        f"{GEMINI_SYNTHESIS_FAILURE_PREFIX} due to a Gemini {type(error).__name__}. "
+        f"Real MCP evidence was gathered from: {tool_names}. "
+        "Raw tool evidence is available in tool_calls for manual review."
+    )
 
 
 def _tool_result_value(result: Any) -> Any:
@@ -263,12 +349,12 @@ def _degraded_fallback_diagnosis(text: str) -> str:
     )
 
 
-def _run_degraded_gemini_fallback(prompt: str) -> str:
+def _run_degraded_gemini_fallback(prompt: str, has_tool_evidence: bool = False) -> str:
     try:
         text = _gemini_fallback_text(prompt)
     except Exception as error:
         text = f"Gemini fallback was unavailable: {type(error).__name__}. No diagnosis was produced."
-    return _degraded_fallback_diagnosis(text)
+    return text if has_tool_evidence else _degraded_fallback_diagnosis(text)
 
 
 def _alert_resource_context(alert: str, plan: str | None) -> dict[str, str | None]:
@@ -308,10 +394,157 @@ def _correct_tool_arguments(
     return corrected, corrections
 
 
+async def _execute_mcp_tool(
+    tool_name: str,
+    arguments: dict[str, Any],
+    owners: dict[str, ClientSession],
+    expected_resources: dict[str, str | None],
+) -> tuple[Any, dict[str, Any], list[str]]:
+    corrected_arguments, argument_corrections = _correct_tool_arguments(
+        tool_name,
+        arguments,
+        expected_resources,
+    )
+    result = await owners[tool_name].call_tool(tool_name, corrected_arguments)
+    raw_result = _tool_result_value(result)
+    tool_call = {
+        "tool": tool_name,
+        "args": corrected_arguments,
+        "result": raw_result,
+    }
+    if argument_corrections:
+        tool_call["corrections"] = argument_corrections
+    return raw_result, tool_call, argument_corrections
+
+
+async def _run_gemini_tool_loop(
+    state: GraphState,
+    tool_descriptors: list[MCPToolDescriptor],
+    owners: dict[str, ClientSession],
+    expected_resources: dict[str, str | None],
+) -> tuple[str, str, list[dict[str, Any]]]:
+    system_instruction = (
+        "You are an SRE log analyst. Always begin the investigation by using the available MCP tools "
+        "before considering whether more information is needed. The namespace and deployment name "
+        "stated in the alert are authoritative; never guess or derive them from partial name matching. "
+        "Use the available MCP tools to inspect real data before diagnosing. "
+        "For Pending pods or scheduling failures, use get_pod_events to inspect the actual Kubernetes event reason. "
+        "For a CrashLoopBackOff, inspect Kubernetes resources and logs when appropriate. "
+        "Do not invent observations. After tool results, provide a concise diagnosis grounded in them."
+    )
+    prior_tool_calls = state.get("tool_calls", [])
+    user_prompt = (
+        f"Alert: {state['alert']}\nInvestigation plan: {state['plan']}\n"
+        f"Prior tool evidence from this investigation:\n{json.dumps(prior_tool_calls, default=str)}"
+    )
+    contents: list[types.Content] = [
+        types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])
+    ]
+    tool_calls: list[dict[str, Any]] = []
+    for _ in range(5):
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            tools=_format_gemini_tools(tool_descriptors),
+            tool_config=types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                    mode="ANY" if not tool_calls else "AUTO"
+                )
+            ),
+        )
+        try:
+            response = gemini_client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=contents,
+                config=config,
+            )
+        except Exception as error:
+            if tool_calls:
+                return _gemini_synthesis_failure_diagnosis(tool_calls, error), "gemini", tool_calls
+            raise
+        requested = _parse_gemini_function_calls(response)
+        if not requested:
+            diagnosis = (response.text or "").strip()
+            if diagnosis:
+                return diagnosis, "gemini", tool_calls
+            contents.append(types.Content(
+                role="user",
+                parts=[types.Part.from_text(
+                    text="The tool results are available above. Provide the final diagnosis grounded in them."
+                )],
+            ))
+            continue
+
+        response_content = response.candidates[0].content if response.candidates else None
+        if response_content:
+            contents.append(response_content)
+        for requested_call in requested:
+            raw_result, tool_call, _ = await _execute_mcp_tool(
+                requested_call["name"],
+                requested_call["args"],
+                owners,
+                expected_resources,
+            )
+            tool_calls.append(tool_call)
+            contents.append(_build_gemini_function_response(requested_call["name"], raw_result))
+    contents.append(types.Content(
+        role="user",
+        parts=[types.Part.from_text(
+            text="Stop selecting tools and provide the final diagnosis now, grounded in the real tool results above."
+        )],
+    ))
+    try:
+        final_response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=config,
+        )
+        diagnosis = (final_response.text or "").strip()
+        if diagnosis:
+            return diagnosis, "gemini", tool_calls
+        return _gemini_synthesis_failure_diagnosis(
+            tool_calls,
+            RuntimeError("Gemini returned an empty synthesis response"),
+        ), "gemini", tool_calls
+    except Exception as error:
+        return _gemini_synthesis_failure_diagnosis(tool_calls, error), "gemini", tool_calls
+
+
+async def _run_gemini_tool_fallback(
+    state: GraphState,
+    tool_descriptors: list[MCPToolDescriptor],
+    owners: dict[str, ClientSession],
+    expected_resources: dict[str, str | None],
+    fallback_prompt: str,
+    existing_tool_calls: list[dict[str, Any]],
+) -> tuple[str, str, list[dict[str, Any]]]:
+    try:
+        diagnosis, provider, gemini_tool_calls = await _run_gemini_tool_loop(
+            {**state, "tool_calls": existing_tool_calls},
+            tool_descriptors,
+            owners,
+            expected_resources,
+        )
+        all_tool_calls = [*existing_tool_calls, *gemini_tool_calls]
+        if gemini_tool_calls:
+            return diagnosis, provider, all_tool_calls
+        return (
+            _run_degraded_gemini_fallback(fallback_prompt, bool(all_tool_calls)),
+            provider,
+            all_tool_calls,
+        )
+    except Exception:
+        return (
+            _run_degraded_gemini_fallback(fallback_prompt, bool(existing_tool_calls)),
+            "gemini",
+            existing_tool_calls,
+        )
+
+
 async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, list[dict[str, Any]]]:
     stack, sessions = await _open_mcp_servers()
     try:
-        tools, owners = await _fetch_mcp_tools(sessions)
+        tool_descriptors, owners = await _fetch_mcp_tools(sessions)
+        tools = _format_groq_tools(tool_descriptors)
         messages: list[dict[str, Any]] = [
             {
                 "role": "system",
@@ -344,13 +577,20 @@ async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, lis
                     tools,
                     tool_choice="required" if not tool_calls else "auto",
                 )
-            except APIStatusError:
+            except (RateLimitError, APIStatusError):
                 fallback_prompt = (
                     "Provide the final SRE diagnosis using the investigation conversation below. "
                     "Ground it only in the available tool results and do not request another tool.\n\n"
                     f"{json.dumps(messages, default=str)}"
                 )
-                return _run_degraded_gemini_fallback(fallback_prompt), "gemini", tool_calls
+                return await _run_gemini_tool_fallback(
+                    state,
+                    tool_descriptors,
+                    owners,
+                    expected_resources,
+                    fallback_prompt,
+                    tool_calls,
+                )
             except BadRequestError as error:
                 if not _is_tool_validation_error(error):
                     raise
@@ -388,13 +628,20 @@ async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, lis
                 try:
                     final_response = _groq_completion(messages)
                     return (final_response.choices[0].message.content or "").strip(), "groq", tool_calls
-                except APIStatusError:
+                except (RateLimitError, APIStatusError):
                     fallback_prompt = (
                         "Provide the final SRE diagnosis using the investigation conversation below. "
                         "Ground it only in the available tool results and do not request another tool.\n\n"
                         f"{json.dumps(messages, default=str)}"
                     )
-                    return _run_degraded_gemini_fallback(fallback_prompt), "gemini", tool_calls
+                    return await _run_gemini_tool_fallback(
+                        state,
+                        tool_descriptors,
+                        owners,
+                        expected_resources,
+                        fallback_prompt,
+                        tool_calls,
+                    )
             messages.append({
                 "role": "assistant",
                 "content": assistant.content or "",
@@ -404,17 +651,13 @@ async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, lis
                 arguments = call.function.arguments
                 if isinstance(arguments, str):
                     arguments = json.loads(arguments)
-                arguments, argument_corrections = _correct_tool_arguments(
+                raw_result, tool_call, argument_corrections = await _execute_mcp_tool(
                     call.function.name,
                     arguments,
+                    owners,
                     expected_resources,
                 )
                 corrections.extend(argument_corrections)
-                result = await owners[call.function.name].call_tool(call.function.name, arguments)
-                raw_result = _tool_result_value(result)
-                tool_call = {"tool": call.function.name, "args": arguments, "result": raw_result}
-                if argument_corrections:
-                    tool_call["corrections"] = argument_corrections
                 tool_calls.append(tool_call)
                 messages.append({
                     "role": "tool",
@@ -433,13 +676,20 @@ async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, lis
         try:
             final_response = _groq_completion(messages, tools, tool_choice="none")
             return (final_response.choices[0].message.content or "").strip(), "groq", tool_calls
-        except APIStatusError:
+        except (RateLimitError, APIStatusError):
             fallback_prompt = (
                 "Provide the final SRE diagnosis using the investigation conversation below. "
                 "Ground it only in the available tool results and do not request another tool.\n\n"
                 f"{json.dumps(messages, default=str)}"
             )
-            return _run_degraded_gemini_fallback(fallback_prompt), "gemini", tool_calls
+            return await _run_gemini_tool_fallback(
+                state,
+                tool_descriptors,
+                owners,
+                expected_resources,
+                fallback_prompt,
+                tool_calls,
+            )
     finally:
         await _close_mcp_servers(stack, sessions)
 
@@ -456,7 +706,10 @@ def _run_log_analysis(state: GraphState) -> GraphState:
     updated_state["model_used"] = {**state["model_used"], "log_analysis": provider}
     updated_state["tool_calls"] = [*state["tool_calls"], *tool_calls]
     updated_state["diagnosis"] = diagnosis
-    updated_state["diagnosis_degraded"] = provider == "gemini"
+    updated_state["diagnosis_degraded"] = (
+        provider == "gemini"
+        and (not tool_calls or diagnosis.startswith(GEMINI_SYNTHESIS_FAILURE_PREFIX))
+    )
     return updated_state
 
 
