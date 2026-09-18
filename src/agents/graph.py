@@ -4,6 +4,7 @@ import os
 import json
 import re
 from contextlib import AsyncExitStack
+from functools import lru_cache
 from pprint import pprint
 from pathlib import Path
 from typing import Any, Literal, Optional, TypedDict
@@ -14,7 +15,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from google import genai
-from groq import BadRequestError, Groq, RateLimitError
+from groq import APIStatusError, BadRequestError, Groq, RateLimitError
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from langgraph.graph import END, START, StateGraph
@@ -54,7 +55,11 @@ RAG_STRONG_THRESHOLD = 0.80
 _rag_model: SentenceTransformer | None = None
 ANOMALY_THRESHOLD = 0.588
 ANOMALY_MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "lightgbm_final_classifier.joblib"
-_anomaly_model = joblib.load(ANOMALY_MODEL_PATH)
+
+
+@lru_cache(maxsize=1)
+def _get_anomaly_model() -> Any:
+    return joblib.load(ANOMALY_MODEL_PATH)
 
 
 VALID_RECOMMENDED_ACTIONS = ("restart_deployment", "scale_deployment", "none")
@@ -79,7 +84,8 @@ class GraphState(TypedDict):
 
 
 def _engineer_final_features(rows: pd.DataFrame) -> pd.DataFrame:
-    base_columns = [column for column in _anomaly_model.feature_name() if column not in {
+    anomaly_model = _get_anomaly_model()
+    base_columns = [column for column in anomaly_model.feature_name() if column not in {
         "lag_1_diff", "lag_3_ratio", "rolling_zscore_5", "velocity_sign_change",
         "rolling_max_5", "rolling_min_5", "rolling_mean_15", "rolling_std_15",
         "rolling_mean_30", "rolling_std_30", "zscore_vs_15", "zscore_vs_30",
@@ -116,7 +122,7 @@ def _engineer_final_features(rows: pd.DataFrame) -> pd.DataFrame:
             prepared[f"rolling_std_{window}"] = grouped["value"].transform(lambda series, window=window: series.rolling(window, min_periods=1).std().fillna(0))
     prepared["zscore_vs_15"] = np.where(prepared["rolling_std_15"] > 1e-6, (values - prepared["rolling_mean_15"]) / (prepared["rolling_std_15"] + 1e-8), 0.0).clip(-10, 10)
     prepared["zscore_vs_30"] = np.where(prepared["rolling_std_30"] > 1e-6, (values - prepared["rolling_mean_30"]) / (prepared["rolling_std_30"] + 1e-8), 0.0).clip(-10, 10)
-    return prepared[_anomaly_model.feature_name()]
+    return prepared[anomaly_model.feature_name()]
 
 
 def _score_metric_rows(row: dict[str, Any] | pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
@@ -124,7 +130,7 @@ def _score_metric_rows(row: dict[str, Any] | pd.DataFrame) -> tuple[pd.DataFrame
     prepared_rows = rows.copy()
     prepared_rows["timestamp"] = pd.to_datetime(prepared_rows["timestamp"])
     prepared_rows = prepared_rows.sort_values(["service_name", "timestamp"]).reset_index(drop=True)
-    probabilities = _anomaly_model.predict(_engineer_final_features(prepared_rows))
+    probabilities = _get_anomaly_model().predict(_engineer_final_features(prepared_rows))
     return prepared_rows, probabilities
 
 
@@ -338,7 +344,7 @@ async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, lis
                     tools,
                     tool_choice="required" if not tool_calls else "auto",
                 )
-            except RateLimitError:
+            except APIStatusError:
                 fallback_prompt = (
                     "Provide the final SRE diagnosis using the investigation conversation below. "
                     "Ground it only in the available tool results and do not request another tool.\n\n"
@@ -382,7 +388,7 @@ async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, lis
                 try:
                     final_response = _groq_completion(messages)
                     return (final_response.choices[0].message.content or "").strip(), "groq", tool_calls
-                except RateLimitError:
+                except APIStatusError:
                     fallback_prompt = (
                         "Provide the final SRE diagnosis using the investigation conversation below. "
                         "Ground it only in the available tool results and do not request another tool.\n\n"
@@ -427,7 +433,7 @@ async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, lis
         try:
             final_response = _groq_completion(messages, tools, tool_choice="none")
             return (final_response.choices[0].message.content or "").strip(), "groq", tool_calls
-        except RateLimitError:
+        except APIStatusError:
             fallback_prompt = (
                 "Provide the final SRE diagnosis using the investigation conversation below. "
                 "Ground it only in the available tool results and do not request another tool.\n\n"
