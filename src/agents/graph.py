@@ -79,6 +79,7 @@ class GraphState(TypedDict):
     action_replicas: int | None
     trust_score: float | None
     classification: Literal["ACCEPT", "REVIEW", "REJECT"] | None
+    verifier_reasoning: str | None
     log: list[str]
     model_used: dict[str, str]
     tool_calls: list[dict[str, Any]]

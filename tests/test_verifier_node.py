@@ -1,6 +1,11 @@
 import pytest
+from langgraph.graph import END, START, StateGraph
+
+import src.api.main as api_main
+from src.agents.runner import _incident_fields_from_graph
 
 from src.agents.graph import (
+    GraphState,
     RAG_STRONG_THRESHOLD,
     RAG_WEAK_THRESHOLD,
     graph,
@@ -29,6 +34,7 @@ def _make_state(**overrides):
         "action_replicas": None,
         "trust_score": None,
         "classification": None,
+        "verifier_reasoning": None,
         "log": [],
         "model_used": {},
         "tool_calls": [],
@@ -36,6 +42,38 @@ def _make_state(**overrides):
     }
     state.update(overrides)
     return state
+
+
+def test_verifier_reasoning_survives_graph_and_persistence(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "src.agents.graph.call_llm_with_fallback",
+        lambda prompt, node_name: ("mock verifier reasoning", "test"),
+    )
+    builder = StateGraph(GraphState)
+    builder.add_node("verifier", verifier_node)
+    builder.add_edge(START, "verifier")
+    builder.add_edge("verifier", END)
+    compiled_graph = builder.compile()
+
+    final_state = compiled_graph.invoke(_make_state(
+        alert="paymentservice is unhealthy",
+        plan="Inspect the paymentservice workload.",
+        diagnosis="The workload is unhealthy.",
+        proposed_fix="Inspect pod health and probe configuration.",
+    ))
+    assert final_state["verifier_reasoning"] == "mock verifier reasoning"
+
+    fields = _incident_fields_from_graph(final_state)
+    assert fields["verifier_reasoning"] == "mock verifier reasoning"
+
+    monkeypatch.setattr(api_main, "DB_PATH", tmp_path / "test_ai_sre.db")
+    incident = api_main.persist_incident(fields, trusted_graph=True)
+    with api_main.get_db_connection() as connection:
+        row = connection.execute(
+            "SELECT verifier_reasoning FROM incidents WHERE id = ?",
+            (incident["id"],),
+        ).fetchone()
+    assert row["verifier_reasoning"] == "mock verifier reasoning"
 
 
 def test_verifier_rejects_when_no_evidence_and_no_rag_match(offline_verifier_llm):

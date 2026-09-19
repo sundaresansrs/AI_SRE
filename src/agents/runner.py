@@ -18,6 +18,7 @@ def _initial_graph_state(alert: str) -> GraphState:
         "action_replicas": None,
         "trust_score": None,
         "classification": None,
+        "verifier_reasoning": None,
         "log": [],
         "model_used": {},
         "tool_calls": [],
