@@ -13,6 +13,8 @@ from src.agents.graph import (
     _build_gemini_function_response,
     _format_gemini_tools,
     _parse_gemini_function_calls,
+    _alert_resource_context,
+    _correct_tool_arguments,
 )
 
 
@@ -24,6 +26,25 @@ GET_POD_STATUS_SCHEMA = {
     },
     "required": ["namespace", "pod_name"],
 }
+
+
+@pytest.mark.parametrize("alert", [
+    "paymentservice pod in the online-boutique namespace is crash-looping with exit code 143",
+    "paymentservice pod in online-boutique is crash-looping",
+    "paymentservice pod in namespace online-boutique is crash-looping",
+    "paymentservice pod namespace: online-boutique is crash-looping",
+])
+def test_alert_resource_context_preserves_online_boutique_namespace(alert):
+    expected = _alert_resource_context(alert, None)
+    corrected, corrections = _correct_tool_arguments(
+        "list_pods",
+        {"namespace": "online-boutique"},
+        expected,
+    )
+
+    assert expected["namespace"] == "online-boutique"
+    assert corrected == {"namespace": "online-boutique"}
+    assert corrections == []
 
 
 def _get_pod_status_descriptor() -> MCPToolDescriptor:

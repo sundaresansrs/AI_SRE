@@ -359,19 +359,25 @@ def _run_degraded_gemini_fallback(prompt: str, has_tool_evidence: bool = False) 
 
 def _alert_resource_context(alert: str, plan: str | None) -> dict[str, str | None]:
     text = "\n".join(value for value in (alert, plan or "") if value)
-    namespace_match = re.search(
-        r"\b(?:in|namespace)\s+namespace\s+([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)|"
-        r"\bnamespace\s*[:=]?\s*([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)",
-        text,
-        re.IGNORECASE,
-    )
+    namespace_value = r"(?!is\b|was\b|are\b|be\b|has\b|have\b|does\b|did\b)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?"
+    namespace_match = None
+    for pattern in (
+        rf"\bin\s+the\s+({namespace_value})\s+namespace\b",
+        rf"\bin\s+namespace\s+({namespace_value})\b",
+        rf"\bnamespace\s*:\s*({namespace_value})\b",
+        rf"\bnamespace\s+({namespace_value})\b",
+        rf"\bin\s+({namespace_value})\b",
+    ):
+        namespace_match = re.search(pattern, text, re.IGNORECASE)
+        if namespace_match:
+            break
     deployment_match = re.search(
         r"\bdeployment(?:\.apps)?[ /:`'\"]+([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)",
         text,
         re.IGNORECASE,
     )
     return {
-        "namespace": next((group for group in namespace_match.groups() if group), None) if namespace_match else None,
+        "namespace": namespace_match.group(1) if namespace_match else None,
         "deployment_name": deployment_match.group(1) if deployment_match else None,
     }
 
