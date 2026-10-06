@@ -9,6 +9,12 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 import mlflow
 import joblib
 import warnings
+import os
+
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# Log to <repo>/mlflow.db (artifacts under <repo>/mlruns) unless MLFLOW_TRACKING_URI points elsewhere (e.g. DagsHub).
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{(REPO_ROOT / 'mlflow.db').as_posix()}"))
 warnings.filterwarnings('ignore')
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -19,13 +25,13 @@ print("=" * 80)
 
 # 1. LOAD BASE DATA & COMPUTE DOMAIN STATISTICS
 print("\n1. Loading data and computing domain context statistics...")
-data_dir = Path(r'C:\AI-SRE\data\model_inputs')
+data_dir = REPO_ROOT / "data/model_inputs"
 
 train_df = pd.read_parquet(data_dir / 'train_80pct_v2_advanced_features.parquet')
 val_df = pd.read_parquet(data_dir / 'val_10pct_v2_advanced_features.parquet')
 test_df = pd.read_parquet(data_dir / 'test_10pct_v2_advanced_features.parquet')
 
-unified_path = Path(r'C:\AI-SRE\data\processed\gaia_unified.parquet')
+unified_path = REPO_ROOT / "data/processed/gaia_unified.parquet"
 import pyarrow.parquet as pq
 pf = pq.ParquetFile(unified_path)
 
@@ -291,7 +297,7 @@ mlflow.log_metrics({
 })
 
 # Save model
-model_path = Path(r'C:\AI-SRE\src\models\lightgbm_precision_optimized.joblib')
+model_path = REPO_ROOT / "src/models/lightgbm_precision_optimized.joblib"
 model_path.parent.mkdir(parents=True, exist_ok=True)
 joblib.dump(model_precision, model_path)
 print(f"   [OK] Model saved: {model_path}")
@@ -305,7 +311,7 @@ config = {
     'test_recall': test_rec,
     'test_auc': test_auc
 }
-config_path = Path(r'C:\AI-SRE\src\models\precision_optimized_config.joblib')
+config_path = REPO_ROOT / "src/models/precision_optimized_config.joblib"
 joblib.dump(config, config_path)
 print(f"   [OK] Config saved: {config_path}")
 

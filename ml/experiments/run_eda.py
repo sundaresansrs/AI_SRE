@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
 
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 # Ensure UTF-8 stdout
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -15,7 +18,7 @@ print("=" * 80)
 print("PHASE 2, STEP 1: EXPLORATORY DATA ANALYSIS (MEMORY-EFFICIENT STREAMING SCAN)")
 print("=" * 80)
 
-parquet_path = Path(r'C:\AI-SRE\data\processed\gaia_unified.parquet')
+parquet_path = REPO_ROOT / "data/processed/gaia_unified.parquet"
 parquet_file = pq.ParquetFile(parquet_path)
 
 meta = parquet_file.metadata
@@ -198,7 +201,7 @@ axes[1, 1].pie([anomaly_false, anomaly_true], labels=['Normal', 'Anomaly'], auto
 axes[1, 1].set_title(f'Class Distribution (Total: {total_rows:,} rows)', fontsize=12, fontweight='bold')
 
 plt.tight_layout()
-out_img = Path(r'C:\AI-SRE\notebooks\eda_phase2_visualizations.png')
+out_img = REPO_ROOT / "notebooks/eda_phase2_visualizations.png"
 plt.savefig(out_img, dpi=150, bbox_inches='tight')
 print(f"   [OK] Saved visualizations to {out_img}")
 

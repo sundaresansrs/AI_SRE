@@ -9,6 +9,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import joblib
 
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 # Ensure UTF-8 output
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -16,8 +19,8 @@ print("=" * 80)
 print("PHASE 2, STEP 2: FEATURE ENGINEERING & TRAIN/TEST SPLIT")
 print("=" * 80)
 
-parquet_path = Path(r'C:\AI-SRE\data\processed\gaia_unified.parquet')
-out_dir = Path(r'C:\AI-SRE\data\model_inputs')
+parquet_path = REPO_ROOT / "data/processed/gaia_unified.parquet"
+out_dir = REPO_ROOT / "data/model_inputs"
 out_dir.mkdir(parents=True, exist_ok=True)
 
 parquet_file = pq.ParquetFile(parquet_path)

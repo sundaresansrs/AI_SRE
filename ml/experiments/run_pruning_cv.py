@@ -10,6 +10,12 @@ from sklearn.model_selection import StratifiedKFold
 import mlflow
 import joblib
 import warnings
+import os
+
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# Log to <repo>/mlflow.db (artifacts under <repo>/mlruns) unless MLFLOW_TRACKING_URI points elsewhere (e.g. DagsHub).
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{(REPO_ROOT / 'mlflow.db').as_posix()}"))
 warnings.filterwarnings('ignore')
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -20,7 +26,7 @@ print("=" * 80)
 
 # 1. LOAD FULL DATASET WITH 43 FEATURES
 print("\n1. Loading full dataset (2M samples, 43 features)...")
-data_dir = Path(r'C:\AI-SRE\data\model_inputs')
+data_dir = REPO_ROOT / "data/model_inputs"
 
 train_df = pd.read_parquet(data_dir / 'train_80pct_v2_advanced_features.parquet')
 val_df = pd.read_parquet(data_dir / 'val_10pct_v2_advanced_features.parquet')
@@ -32,7 +38,7 @@ df_combined = pd.concat([train_df, val_df, test_df], ignore_index=True)
 base_feature_cols = [c for c in train_df.columns if c != 'label_is_anomaly' and c != 'service_name']
 
 # Load domain stats
-unified_path = Path(r'C:\AI-SRE\data\processed\gaia_unified.parquet')
+unified_path = REPO_ROOT / "data/processed/gaia_unified.parquet"
 import pyarrow.parquet as pq
 pf = pq.ParquetFile(unified_path)
 
@@ -145,7 +151,7 @@ print(f"   Feature count: {len(feature_cols_all)}")
 
 # 3. LOAD BASELINE MODEL & GET FEATURE IMPORTANCE
 print("\n3. Loading baseline precision-optimized model...")
-baseline_model = joblib.load(Path(r'C:\AI-SRE\src\models\lightgbm_precision_optimized.joblib'))
+baseline_model = joblib.load(REPO_ROOT / "src/models/lightgbm_precision_optimized.joblib")
 
 baseline_importance = baseline_model.feature_importance(importance_type='gain')
 feature_importance_df = pd.DataFrame({
@@ -286,7 +292,7 @@ print(f"   AUC:       {mean_auc:.4f} \u00b1 {std_auc:.4f}")
 
 # 6. SAVE PRUNED FEATURE LIST
 print("\n6. Saving pruned feature list...")
-pruned_features_path = Path(r'C:\AI-SRE\src\models\pruned_features_top30.joblib')
+pruned_features_path = REPO_ROOT / "src/models/pruned_features_top30.joblib"
 joblib.dump(top_30_features, pruned_features_path)
 print(f"   [OK] Pruned features saved: {pruned_features_path}")
 

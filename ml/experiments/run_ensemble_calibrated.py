@@ -11,6 +11,12 @@ from sklearn.calibration import IsotonicRegression
 import mlflow
 import joblib
 import warnings
+import os
+
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# Log to <repo>/mlflow.db (artifacts under <repo>/mlruns) unless MLFLOW_TRACKING_URI points elsewhere (e.g. DagsHub).
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{(REPO_ROOT / 'mlflow.db').as_posix()}"))
 warnings.filterwarnings('ignore')
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -21,7 +27,7 @@ print("=" * 80)
 
 # 1. LOAD FINAL FEATURES & TRAINED LIGHTGBM
 print("\n1. Loading 37-feature dataset and trained LightGBM...")
-data_dir = Path(r'C:\AI-SRE\data\model_inputs')
+data_dir = REPO_ROOT / "data/model_inputs"
 
 train_df = pd.read_parquet(data_dir / 'train_80pct_v2_advanced_features.parquet')
 val_df = pd.read_parquet(data_dir / 'val_10pct_v2_advanced_features.parquet')
@@ -90,7 +96,7 @@ print(f"   Total features: {len(feature_cols_final)}")
 
 # 2. LOAD PRE-TRAINED LIGHTGBM
 print("\n2. Loading pre-trained LightGBM model...")
-lgb_model = joblib.load(Path(r'C:\AI-SRE\src\models\lightgbm_final_classifier.joblib'))
+lgb_model = joblib.load(REPO_ROOT / "src/models/lightgbm_final_classifier.joblib")
 print("   [OK] LightGBM loaded")
 
 # 3. GET LIGHTGBM RAW PROBABILITIES
@@ -222,11 +228,11 @@ print(f"{'='*70}")
 
 # 11. SAVE ENSEMBLE MODELS
 print("\n11. Saving calibrated models and ensemble metadata...")
-calibrator_path = Path(r'C:\AI-SRE\src\models\probability_calibrator_isotonic.joblib')
+calibrator_path = REPO_ROOT / "src/models/probability_calibrator_isotonic.joblib"
 joblib.dump(calibrator, calibrator_path)
 print(f"   [OK] Calibrator saved: {calibrator_path}")
 
-xgb_model_path = Path(r'C:\AI-SRE\src\models\xgboost_ensemble.joblib')
+xgb_model_path = REPO_ROOT / "src/models/xgboost_ensemble.joblib"
 joblib.dump(xgb_model, xgb_model_path)
 print(f"   [OK] XGBoost model saved: {xgb_model_path}")
 
@@ -241,7 +247,7 @@ ensemble_config = {
     'test_recall': test_rec,
     'test_auc': test_auc
 }
-config_path = Path(r'C:\AI-SRE\src\models\ensemble_config.joblib')
+config_path = REPO_ROOT / "src/models/ensemble_config.joblib"
 joblib.dump(ensemble_config, config_path)
 print(f"   [OK] Ensemble config saved: {config_path}")
 

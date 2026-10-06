@@ -10,6 +10,12 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 import mlflow
 import mlflow.pytorch
 import time
+import os
+
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# Log to <repo>/mlflow.db (artifacts under <repo>/mlruns) unless MLFLOW_TRACKING_URI points elsewhere (e.g. DagsHub).
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{(REPO_ROOT / 'mlflow.db').as_posix()}"))
 
 sys.stdout.reconfigure(encoding='utf-8')
 torch.set_num_threads(4)
@@ -20,7 +26,7 @@ print("=" * 80)
 
 # 1. LOAD V2 SPLITS (WITH ADVANCED FEATURES)
 print("\n1. Loading v2 feature-engineered splits...")
-data_dir = Path(r'C:\AI-SRE\data\model_inputs')
+data_dir = REPO_ROOT / "data/model_inputs"
 
 train_df = pd.read_parquet(data_dir / 'train_80pct_v2_advanced_features.parquet')
 val_df = pd.read_parquet(data_dir / 'val_10pct_v2_advanced_features.parquet')
@@ -97,7 +103,7 @@ num_epochs = 50
 best_val_loss = float('inf')
 patience = 6
 patience_counter = 0
-best_model_path = Path(r'C:\AI-SRE\src\models\autoencoder_v2_advanced.pth')
+best_model_path = REPO_ROOT / "src/models/autoencoder_v2_advanced.pth"
 best_model_path.parent.mkdir(parents=True, exist_ok=True)
 
 # 5. MLFLOW SETUP

@@ -9,6 +9,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import joblib
 import warnings
+
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 warnings.filterwarnings('ignore')
 
 # Ensure UTF-8 output
@@ -20,7 +23,7 @@ print("=" * 80)
 
 # 1. RELOAD DATASET WITH STRATIFIED TEMPORAL PRESERVATION
 print("\n1. Loading unified dataset and sampling with temporal preservation...")
-parquet_path = Path(r'C:\AI-SRE\data\processed\gaia_unified.parquet')
+parquet_path = REPO_ROOT / "data/processed/gaia_unified.parquet"
 parquet_file = pq.ParquetFile(parquet_path)
 meta = parquet_file.metadata
 num_row_groups = meta.num_row_groups
@@ -199,7 +202,7 @@ print(f"   Test anomaly rate:  {y_test.sum() / len(y_test) * 100:.2f}%")
 
 # 8. SAVE NEW PARQUET SPLITS & SCALER
 print("\n8. Saving v2 feature-engineered splits to Parquet...")
-out_dir = Path(r'C:\AI-SRE\data\model_inputs')
+out_dir = REPO_ROOT / "data/model_inputs"
 
 def save_split_v2(X_mat, y_vec, svc_vec, split_name):
     df_split = pd.DataFrame(X_mat, columns=feature_cols)

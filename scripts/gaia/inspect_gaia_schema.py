@@ -1,7 +1,11 @@
 import os, glob, shutil
 import py7zr
+from pathlib import Path
 
-base = r'c:\AI-SRE\data\raw\gaia\MicroSS'
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+base = str(REPO_ROOT / "data/raw/gaia/MicroSS")
 for ds in ['business', 'metric', 'trace']:
     print(f'\n=== {ds} ===')
     root = os.path.join(base, ds)

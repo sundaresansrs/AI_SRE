@@ -10,6 +10,12 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 import mlflow
 import mlflow.pytorch
 import joblib
+import os
+
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# Log to <repo>/mlflow.db (artifacts under <repo>/mlruns) unless MLFLOW_TRACKING_URI points elsewhere (e.g. DagsHub).
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{(REPO_ROOT / 'mlflow.db').as_posix()}"))
 
 # Ensure UTF-8
 sys.stdout.reconfigure(encoding='utf-8')
@@ -20,7 +26,7 @@ print("=" * 80)
 
 # 1. LOAD SPLITS
 print("\n1. Loading train/val/test splits...")
-data_dir = Path(r'C:\AI-SRE\data\model_inputs')
+data_dir = REPO_ROOT / "data/model_inputs"
 
 train_df = pd.read_parquet(data_dir / 'train_80pct.parquet')
 val_df = pd.read_parquet(data_dir / 'val_10pct.parquet')
@@ -103,7 +109,7 @@ num_epochs = 50
 best_val_loss = float('inf')
 patience = 5
 patience_counter = 0
-best_model_path = Path(r'C:\AI-SRE\src\models\autoencoder_best.pth')
+best_model_path = REPO_ROOT / "src/models/autoencoder_best.pth"
 best_model_path.parent.mkdir(parents=True, exist_ok=True)
 
 # 5. MLFLOW SETUP

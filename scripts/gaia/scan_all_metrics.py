@@ -2,9 +2,12 @@ import pandas as pd
 from pathlib import Path
 import logging
 
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-metric_dir = Path(r'C:\AI-SRE\data\raw\gaia\MicroSS\metric\extracted\metric')
+metric_dir = REPO_ROOT / "data/raw/gaia/MicroSS/metric/extracted/metric"
 all_files = sorted(metric_dir.glob('*.csv'))
 
 print(f"Scanning {len(all_files)} metric files...")

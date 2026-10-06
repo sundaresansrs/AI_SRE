@@ -7,6 +7,12 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 import joblib
 import mlflow
 import mlflow.sklearn
+import os
+
+# Repository root, so the script runs from any checkout location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# Log to <repo>/mlflow.db (artifacts under <repo>/mlruns) unless MLFLOW_TRACKING_URI points elsewhere (e.g. DagsHub).
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{(REPO_ROOT / 'mlflow.db').as_posix()}"))
 
 # Ensure UTF-8 output
 sys.stdout.reconfigure(encoding='utf-8')
@@ -17,7 +23,7 @@ print("=" * 80)
 
 # 1. LOAD SPLITS
 print("\n1. Loading train/val/test splits...")
-data_dir = Path(r'C:\AI-SRE\data\model_inputs')
+data_dir = REPO_ROOT / "data/model_inputs"
 
 train_df = pd.read_parquet(data_dir / 'train_80pct.parquet')
 val_df = pd.read_parquet(data_dir / 'val_10pct.parquet')
@@ -148,7 +154,7 @@ mlflow.log_metrics({
 })
 
 # Save model
-model_path = Path(r'C:\AI-SRE\src\models\isolation_forest_baseline.joblib')
+model_path = REPO_ROOT / "src/models/isolation_forest_baseline.joblib"
 model_path.parent.mkdir(parents=True, exist_ok=True)
 joblib.dump(model, model_path)
 print(f"   [OK] Model saved to {model_path}")
