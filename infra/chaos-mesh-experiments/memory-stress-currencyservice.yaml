@@ -1,0 +1,19 @@
+# Consume memory inside the currencyservice container for 3 minutes. Together with its 256Mi limit
+# this can end in an OOMKilled restart.
+# Apply: kubectl apply -f infra/chaos-mesh-experiments/memory-stress-currencyservice.yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: memory-stress-currencyservice
+  namespace: online-boutique
+spec:
+  mode: all
+  duration: 3m
+  selector:
+    namespaces: [online-boutique]
+    labelSelectors:
+      app: currencyservice
+  stressors:
+    memory:
+      workers: 1
+      size: 300MB

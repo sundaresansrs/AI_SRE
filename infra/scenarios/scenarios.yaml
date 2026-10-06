@@ -1,0 +1,210 @@
+# Deliberately broken workloads for testing the agent. Apply with:
+#   kubectl apply -f infra/scenarios/scenarios.yaml
+# Each Deployment lives in the sre-lab namespace (created by Terraform) and is named after the
+# failure it demonstrates. Reset with: kubectl delete -f infra/scenarios/scenarios.yaml
+#
+# Expected agent behaviour is listed per scenario; see docs/runbooks for the matching guidance.
+
+# 1. Container exceeds its memory limit -> OOMKilled (exit 137), CrashLoopBackOff.
+#    Expected action: restart_deployment (stopgap) or none.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-oom-killed
+  namespace: sre-lab
+  labels: { app: lab-oom-killed, scenario: oom-killed }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: lab-oom-killed }
+  template:
+    metadata:
+      labels: { app: lab-oom-killed }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          # Doubles a string until the kernel kills the process at the memory limit.
+          command: ["sh", "-c", "a=x; while true; do a=\"$a$a\"; done"]
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 48Mi }
+---
+# 2. Application exits at startup because a dependency is unreachable -> CrashLoopBackOff.
+#    Expected action: none (a restart crashes again; the logs name the cause).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-crashloop
+  namespace: sre-lab
+  labels: { app: lab-crashloop, scenario: crashloop }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: lab-crashloop }
+  template:
+    metadata:
+      labels: { app: lab-crashloop }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'FATAL: cannot connect to database orders-db.internal:5432: connection refused'; exit 1"]
+          resources:
+            requests: { cpu: 10m, memory: 8Mi }
+            limits: { memory: 32Mi }
+---
+# 3. Image does not exist -> ErrImagePull / ImagePullBackOff, no logs.
+#    Expected action: none (restart and scale cannot fix a bad image reference).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-image-pull
+  namespace: sre-lab
+  labels: { app: lab-image-pull, scenario: image-pull }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: lab-image-pull }
+  template:
+    metadata:
+      labels: { app: lab-image-pull }
+    spec:
+      containers:
+        - name: app
+          image: registry.invalid/does-not-exist/lab-app:never
+          resources:
+            requests: { cpu: 10m, memory: 8Mi }
+---
+# 4. Requests more memory than the node has -> Pending, FailedScheduling (Insufficient memory).
+#    Expected action: none (restart and scale-up cannot help).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-pending
+  namespace: sre-lab
+  labels: { app: lab-pending, scenario: pending }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: lab-pending }
+  template:
+    metadata:
+      labels: { app: lab-pending }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "sleep 3600"]
+          resources:
+            requests: { cpu: 10m, memory: 64Gi }
+---
+# 5. Readiness probe points at a path the server does not serve -> Running but 0/1 Ready.
+#    Expected action: none (probe configuration is wrong; a restart repeats the failure).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-readiness-fail
+  namespace: sre-lab
+  labels: { app: lab-readiness-fail, scenario: readiness-fail }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: lab-readiness-fail }
+  template:
+    metadata:
+      labels: { app: lab-readiness-fail }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet: { path: /healthz-does-not-exist, port: 80 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+---
+# 6. Healthy workload that someone scaled to zero -> no pods, service returns errors.
+#    The cluster data shows desired_replicas=0, so the agent can see the cause.
+#    Expected action: scale_deployment to 1-3 replicas.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-scaled-to-zero
+  namespace: sre-lab
+  labels: { app: lab-scaled-to-zero, scenario: scaled-to-zero }
+spec:
+  replicas: 0
+  selector:
+    matchLabels: { app: lab-scaled-to-zero }
+  template:
+    metadata:
+      labels: { app: lab-scaled-to-zero }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+---
+# 7. References a ConfigMap that does not exist -> CreateContainerConfigError.
+#    Expected action: none (create the ConfigMap; the agent must not invent configuration).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-missing-config
+  namespace: sre-lab
+  labels: { app: lab-missing-config, scenario: missing-config }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: lab-missing-config }
+  template:
+    metadata:
+      labels: { app: lab-missing-config }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "echo started with $DB_HOST; sleep 3600"]
+          env:
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef: { name: lab-app-config, key: db_host }
+          resources:
+            requests: { cpu: 10m, memory: 8Mi }
+---
+# 8. Healthy control: a good alert text about this deployment should NOT produce a fix.
+#    Expected action: none.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-healthy
+  namespace: sre-lab
+  labels: { app: lab-healthy, scenario: healthy-control }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: lab-healthy }
+  template:
+    metadata:
+      labels: { app: lab-healthy }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }

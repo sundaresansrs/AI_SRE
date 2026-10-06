@@ -1,0 +1,21 @@
+# Online Boutique (Google's microservices demo): the workload the agent diagnoses.
+# adService / loadGenerator are toggled from Terraform variables.
+frontend:
+  # kind has no load balancer; Terraform adds a NodePort service instead.
+  externalService: false
+
+serviceAccounts:
+  create: true
+
+# The Python gRPC services use 1-second gRPC liveness/readiness probes that the chart does not let
+# us tune. At the default 200m CPU limit they answer too slowly on a laptop-sized node and are
+# killed in a restart loop, so give them more CPU headroom (memory limits are unchanged).
+emailService:
+  resources:
+    requests: { cpu: 200m, memory: 64Mi }
+    limits: { cpu: 600m, memory: 128Mi }
+
+recommendationService:
+  resources:
+    requests: { cpu: 200m, memory: 220Mi }
+    limits: { cpu: 600m, memory: 450Mi }
