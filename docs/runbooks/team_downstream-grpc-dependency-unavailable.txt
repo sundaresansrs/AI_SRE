@@ -1,0 +1,10 @@
+Title: Team runbook: checkout or frontend errors caused by an unavailable downstream gRPC service
+Category: Kubernetes / Cascading Failure
+
+Symptoms: checkoutservice or frontend returns errors such as rpc error code Unavailable or context deadline exceeded when calling paymentservice, shippingservice, currencyservice or productcatalogservice. The caller pods are Running and Ready, so the visible failure is in the caller, but its logs name the failing downstream address.
+
+Diagnosis: read the caller logs and find the downstream service in the error. Then inspect that downstream deployment: list its pods, status, restart count and events. The root cause is almost always in the downstream service, for example a crash loop, OOMKilled, no ready pods, or zero replicas. Treat the first unhealthy service in the dependency chain as the cause and ignore the callers that merely report the symptom.
+
+Remediation: apply the fix to the failing downstream service according to its own failure type. If it has zero or too few replicas, scale it back up. If it is wedged but healthy by configuration, restart that downstream deployment. Do not restart the caller or the whole namespace; that adds disruption without fixing the cause. After the downstream is healthy, callers recover on their own through gRPC reconnection.
+
+Verification: the downstream service has all replicas Ready and the caller error rate drops to zero.

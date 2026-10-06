@@ -1,0 +1,10 @@
+Title: Team runbook: pod Running but not Ready because the readiness probe fails
+Category: Kubernetes / Health Probes
+
+Symptoms: the pod phase is Running but the ready container count is 0 of 1. The restart count is zero, so this is not a crash loop. Pod events show Readiness probe failed with a connection refused, a timeout, or an unexpected HTTP status such as 503. The service has no ready endpoints, so traffic to it fails, and the deployment reports unavailable replicas.
+
+Diagnosis: read the pod events for the readiness probe failure message and compare the probe path and port with what the application actually serves. Read the logs to see whether the application is still starting, waiting for a dependency, or listening on a different port. A probe with a very short initial delay or timeout can mark a slow starting application as not ready forever.
+
+Remediation: correct the probe path, port or timing in the deployment (a human change), or fix the dependency the application is waiting on. If the application is wedged and not recovering, a restart of the deployment can clear a stuck state. If the probe configuration is wrong, restarting only repeats the failure. Scaling does not fix readiness.
+
+Verification: the ready container count becomes 1 of 1, the service lists the pod as an endpoint, and available replicas equal desired replicas.

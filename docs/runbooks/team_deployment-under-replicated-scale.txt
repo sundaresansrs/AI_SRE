@@ -1,0 +1,10 @@
+Title: Team runbook: deployment under-replicated, scale the deployment to restore capacity
+Category: Kubernetes / Scaling
+
+Symptoms: a deployment shows desired replicas of N but only fewer pods available, or it was scaled down to 0 or 1 by mistake. Requests are slow or fail, and there are no crash loops or scheduling errors, the pods that exist are healthy. The deployment status shows available replicas lower than the replicas the service needs to handle its traffic.
+
+Diagnosis: confirm that the existing pods are Running and Ready, so the problem is capacity and not health. Check the deployment desired replica count against the intended count in the manifest or the last known value, and check whether an autoscaler or a manual change reduced it. Verify the cluster has resources to run more replicas before scaling up.
+
+Remediation: scale the deployment up to the intended replica count. This is a safe, reversible action when the pods are healthy and the node has capacity: for a stateless service such as frontend or productcatalogservice, two or three replicas is a normal target. Keep the replica count within the cluster capacity, since extra replicas that cannot be scheduled remain Pending. Restarting is not needed when the pods are healthy.
+
+Verification: available replicas equal the new desired replicas and request latency returns to normal.

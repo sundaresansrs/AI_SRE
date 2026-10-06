@@ -1,0 +1,10 @@
+Title: Team runbook: container restarted repeatedly by a failing liveness probe
+Category: Kubernetes / Health Probes
+
+Symptoms: the restart count increases at regular intervals even though the application starts. Pod events show Liveness probe failed followed by Container failed liveness probe, will be restarted. The last terminated reason is Error or Completed with exit code 143 or 137 from the kubelet stopping the container, not OOMKilled.
+
+Diagnosis: read the pod events and the logs just before each restart. Check whether the liveness probe timeout or period is too aggressive for the application, whether the application is overloaded by CPU throttling so health responses are late, or whether the application really deadlocks. Exit code 143 means the process received SIGTERM from the kubelet after a failed probe.
+
+Remediation: relax the probe settings by increasing timeoutSeconds, failureThreshold or initialDelaySeconds, or add a startup probe for slow applications. If CPU throttling makes health checks slow, raise the CPU limit. Restarting the deployment resets the counter but the loop returns until the probe or the resource limit is corrected. Adding replicas can reduce per-pod load when overload is the cause.
+
+Verification: the restart count stops increasing and the pod remains Running and Ready.

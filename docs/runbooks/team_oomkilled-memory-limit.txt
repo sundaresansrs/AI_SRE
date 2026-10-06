@@ -1,0 +1,10 @@
+Title: Team runbook: container OOMKilled because the memory limit is too low
+Category: Kubernetes / Resource Limits
+
+Symptoms: the pod shows repeated restarts and the CrashLoopBackOff status. The pod status reports last terminated reason OOMKilled with exit code 137, and the restart count keeps growing. The container runs for a short time, reaches its memory limit, and the kernel kills it. In Online Boutique this typically affects cartservice, currencyservice or recommendationservice after a traffic increase or a memory leak.
+
+Diagnosis: read the pod status and confirm last_terminated_reason is OOMKilled with exit code 137. Compare the container memory limit in the deployment with the working set memory reported by metrics. If memory climbs steadily until the kill, suspect a leak; if it jumps with load, the limit is simply too small.
+
+Remediation: raising the memory limit in the deployment manifest is the real fix, and a human must make that change. Restarting the deployment only gives a temporary reset: the pods come back with empty memory and usually run for a while before the limit is hit again, so a restart is a reasonable stopgap while the limit change is prepared. Scaling out the deployment spreads load across more pods and can reduce per-pod memory pressure. Do not scale to zero.
+
+Verification: after the change, confirm the restart count stops increasing and available replicas equal desired replicas.

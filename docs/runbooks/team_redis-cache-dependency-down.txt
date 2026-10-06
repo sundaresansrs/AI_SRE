@@ -1,0 +1,10 @@
+Title: Team runbook: cartservice fails because its Redis cache redis-cart is unavailable
+Category: Kubernetes / Dependency Failure
+
+Symptoms: cartservice returns errors, add to cart and cart page requests fail with 500, and frontend logs show failures calling the cart service. The cartservice logs report that it cannot connect to redis-cart:6379 or that a Redis operation timed out. cartservice pods may be Running but not Ready, or restarting if the connection is checked at startup.
+
+Diagnosis: check the redis-cart deployment and pod: it may be crashed, OOMKilled, scaled to zero, or pending. List the pods in the online-boutique namespace and read the status of redis-cart first, because the symptom appears in cartservice but the cause is the dependency. Check that the redis-cart service has an endpoint.
+
+Remediation: recover the dependency first. Restart or scale the redis-cart deployment back to one replica; restarting cartservice before Redis is healthy only repeats the failure. After redis-cart is Ready, restart cartservice if it does not reconnect on its own. Cart contents stored only in memory are lost when Redis restarts, which is acceptable for the demo but should be noted.
+
+Verification: redis-cart is Ready, cartservice logs show a successful connection, and the cart page loads.

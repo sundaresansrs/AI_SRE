@@ -1,0 +1,10 @@
+Title: Team runbook: rollout stuck with ProgressDeadlineExceeded after a deployment update
+Category: Kubernetes / Rollouts
+
+Symptoms: after a deployment change, the rollout never completes. The deployment condition Progressing is False with reason ProgressDeadlineExceeded. The observed generation is behind or the updated replicas are fewer than desired, while old pods keep serving. New pods may be Pending, ImagePullBackOff, or failing their readiness probe.
+
+Diagnosis: do not look at the deployment alone; list the pods and find the new ReplicaSet pods that are not Ready, then read their status and events to find the real reason. Common causes are a bad image, a failing readiness probe, a missing ConfigMap, or insufficient cluster resources. The deployment strategy usually keeps old pods running, so service continues at reduced capacity.
+
+Remediation: fix the specific problem found in the new pods, and roll back to the previous revision if the fix is not immediate. Restarting the deployment creates yet another rollout of the same broken template and does not help. Scaling does not help either. Rolling back is a human decision because it discards the change.
+
+Verification: the Progressing condition becomes True with reason NewReplicaSetAvailable, updated replicas equal desired replicas, and no pod is unready.

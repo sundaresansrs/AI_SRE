@@ -1,0 +1,10 @@
+Title: Team runbook: ImagePullBackOff or ErrImagePull because the container image cannot be pulled
+Category: Kubernetes / Image Registry
+
+Symptoms: new pods stay in the Waiting state with reason ErrImagePull and then ImagePullBackOff. The pod never starts, so there are no application logs. Deployment status shows unavailable replicas and a rollout that never completes. Pod events contain Failed to pull image, repository does not exist, manifest unknown, or unauthorized.
+
+Diagnosis: read the pod events for the exact pull error. The three common causes are a typo in the image name or tag, a tag that was never pushed to the registry, and missing or expired registry credentials for a private registry. Check whether the node can reach the registry at all; a network or rate limit error looks different from a manifest not found error.
+
+Remediation: correct the image reference in the deployment or push the missing tag, and supply the image pull secret if the registry is private. Restarting the deployment does NOT fix this problem, because the same unpullable image is requested again. Scaling the deployment does not help either. This is a case where the recommended automated action should be none and a human must correct the image reference. If an older ReplicaSet is still serving traffic, leave it running until the fix is rolled out.
+
+Verification: new pods pull the image, become Ready, and the old ReplicaSet scales down.

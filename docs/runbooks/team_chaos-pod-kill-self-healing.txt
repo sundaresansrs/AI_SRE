@@ -1,0 +1,10 @@
+Title: Team runbook: pod killed by fault injection or node event, self-healing through the deployment controller
+Category: Kubernetes / Chaos Engineering
+
+Symptoms: a pod disappears or shows Terminating, error rates spike briefly, and then a replacement pod appears. The deployment desired replicas are unchanged, and available replicas dip below desired for a short time before recovering. A chaos experiment such as PodChaos pod-kill, or a node maintenance event, is the usual cause. The restart count of the new pod is zero because it is a new pod, not a restarted container.
+
+Diagnosis: check whether a chaos experiment is active in the cluster and whether the deployment shows available replicas climbing back toward desired. Verify the replacement pod becomes Ready within its normal startup time. A service with only one replica has a short outage during replacement; a service with two or more replicas should stay available.
+
+Remediation: usually no action is needed, because the ReplicaSet recreates the pod automatically. Do not restart the deployment while it is already recovering; that interrupts the recovery. If the service runs with a single replica and availability matters, scale the deployment to two replicas so a single pod loss does not cause an outage. If the replacement pod does not become Ready, switch to the matching runbook for that failure type.
+
+Verification: available replicas equal desired replicas and error rates return to baseline.

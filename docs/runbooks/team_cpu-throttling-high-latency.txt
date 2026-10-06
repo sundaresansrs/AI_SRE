@@ -1,0 +1,10 @@
+Title: Team runbook: high latency caused by CPU throttling at the container CPU limit
+Category: Kubernetes / Performance
+
+Symptoms: requests become slow although no pod is crashing and memory is normal. The service is Running and Ready but response times and gRPC deadline exceeded errors increase under load. Metrics show container CPU usage pinned at the CPU limit and a high container CPU throttled periods ratio.
+
+Diagnosis: query CPU usage against the configured limit for the affected pods. Usage close to the limit with high throttling confirms the diagnosis. Check whether the load increased, for example from the load generator, or whether a recent release made the code more expensive. Compare with replica count: a single replica carrying all traffic is the typical case.
+
+Remediation: scale the deployment to add replicas so the load is shared; this is the safest automated action and is easy to reverse. Raising the CPU limit in the manifest is the long term fix and needs a human change. Restarting the deployment does not reduce throttling and briefly removes capacity, so it is not recommended. After scaling, keep the replica count within what the node can schedule.
+
+Verification: CPU throttling drops, latency returns to its normal level, and error rates fall.
