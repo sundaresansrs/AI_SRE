@@ -76,6 +76,29 @@ def test_verifier_reasoning_survives_graph_and_persistence(monkeypatch, tmp_path
     assert row["verifier_reasoning"] == "mock verifier reasoning"
 
 
+def test_verifier_prompt_states_the_gate_verdict_instead_of_asking_the_llm_to_decide(monkeypatch):
+    prompts = []
+
+    def capture(prompt, node_name):
+        prompts.append(prompt)
+        return "REVIEW because the runbook match is weak.", "test"
+
+    monkeypatch.setattr("src.agents.graph.call_llm_with_fallback", capture)
+    state = _make_state(
+        alert="checkoutservice slow",
+        diagnosis="CPU throttling on checkoutservice",
+        tool_calls=[{"tool": "list_pods", "args": {}, "result": [{"name": "checkoutservice-1", "status": "Running"}]}],
+        retrieved_chunks=[{"score": 0.6, "chunk_id": "c", "source_file": "f.txt", "chunk_text": "t"}],
+    )
+
+    result = verifier_node(state)
+
+    assert result["classification"] == "REVIEW"
+    assert "already classified this proposed fix as REVIEW" in prompts[0]
+    assert "Respond with ACCEPT, REVIEW, or REJECT" not in prompts[0]
+    assert result["verifier_reasoning"].startswith("REVIEW")
+
+
 def test_verifier_rejects_when_no_evidence_and_no_rag_match(offline_verifier_llm):
     state = _make_state(
         alert="Namespace prod has an unrelated application issue",
