@@ -1,0 +1,10 @@
+Title: Team runbook: Service has no endpoints because the selector does not match any pod
+Category: Kubernetes / Networking
+
+Symptoms: calls to a service fail with connection refused or no healthy upstream, although the pods behind it are Running and Ready. The service has an empty endpoints list. Other services see timeouts or gRPC Unavailable errors when calling it.
+
+Diagnosis: compare the service selector with the labels on the pods. A renamed label, a typo, or a deployment that changed its pod labels leaves the selector matching nothing. Also check that the service targetPort matches the port the container listens on, and that the pods are Ready, because only Ready pods are listed as endpoints.
+
+Remediation: correct the service selector or the pod labels so they match, and fix the targetPort if it is wrong. These are manifest changes that a human must review. Restarting the deployment does not change labels and does not help; scaling does not help either, because adding replicas with the same labels still matches nothing. If the pods are simply not Ready, follow the readiness probe runbook instead.
+
+Verification: the service lists one endpoint per ready pod and requests to it succeed.

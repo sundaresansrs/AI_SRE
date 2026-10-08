@@ -1,0 +1,10 @@
+Title: Team runbook: pods Evicted because the node is under memory or disk pressure
+Category: Kubernetes / Node Health
+
+Symptoms: pods show the Evicted status or Failed phase with reason Evicted and a message such as The node was low on resource: memory or ephemeral-storage. Several workloads on the same node are affected at once. The node conditions report MemoryPressure or DiskPressure, and new pods may be Pending because the node is tainted.
+
+Diagnosis: read the pod status message for which resource was low, then check node conditions and resource usage. Look for a workload with no memory limit using far more than its request, a log volume filling the disk, or too many pods packed onto one small node. Evicted pods are not restarted in place; the deployment controller creates replacements, so old Evicted pods remain as clutter.
+
+Remediation: relieve the pressure first: stop or scale down the heaviest non-essential workload, clean up disk usage, or add node capacity. Then let the deployment controller reschedule pods; restarting the deployment is acceptable once the pressure is gone. Setting memory limits and requests on every container prevents one workload from starving the node. Delete the Evicted pod objects after investigation.
+
+Verification: node pressure conditions clear and replacement pods are Running and Ready.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -8,13 +9,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 
 from src.executor.executor import execute_recommended_action
 
-DB_PATH = Path(__file__).resolve().with_name("ai_sre.db")
+DB_PATH = Path(os.getenv("AI_SRE_DB_PATH") or Path(__file__).resolve().with_name("ai_sre.db"))
 DASHBOARD_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -24,6 +25,20 @@ DASHBOARD_ORIGINS = [
     if origin.strip()
 ]
 logger = logging.getLogger(__name__)
+EXECUTABLE_ACTIONS = {"restart_deployment", "scale_deployment"}
+
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Guard state-changing endpoints with a shared secret when AI_SRE_API_KEY is configured."""
+    expected = os.getenv("AI_SRE_API_KEY", "")
+    if not expected:
+        return
+    if not x_api_key or not hmac.compare_digest(x_api_key, expected):
+        raise HTTPException(status_code=401, detail="missing or invalid X-API-Key header")
+
+
+if not os.getenv("AI_SRE_API_KEY"):
+    logger.warning("AI_SRE_API_KEY is not set: state-changing endpoints are unauthenticated")
 
 app = FastAPI(title="AI-SRE incident API", version="0.1.0")
 app.add_middleware(
@@ -60,6 +75,7 @@ class IncidentRecord(IncidentCreate):
     executed_at: str | None = None
     execution_result: dict[str, Any] | None = None
     execution_trigger: str | None = None
+    execution_status: Literal["running", "succeeded", "failed"] | None = None
 
 
 def utc_now() -> str:
@@ -100,6 +116,7 @@ def get_db_connection() -> sqlite3.Connection:
             "executed_at": "TEXT",
             "execution_result": "TEXT",
             "execution_trigger": "TEXT",
+            "execution_status": "TEXT",
         }
         for column, definition in migrations.items():
             if column not in existing_columns:
@@ -144,18 +161,79 @@ def _action_is_eligible(state: dict[str, Any]) -> bool:
     return True
 
 
-def _persist_execution(
-    conn: sqlite3.Connection,
-    incident_id: int,
-    execution_result: dict[str, Any],
-    execution_trigger: str,
-) -> None:
+def _action_state(source: Any) -> dict[str, Any]:
+    return {
+        "recommended_action": source["recommended_action"],
+        "action_namespace": source["action_namespace"],
+        "action_deployment_name": source["action_deployment_name"],
+        "action_replicas": source["action_replicas"],
+    }
+
+
+def _fetch_incident(conn: sqlite3.Connection, incident_id: int) -> sqlite3.Row:
+    row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+    return row
+
+
+def _claim_execution(incident_id: int, *, require_approval: bool) -> dict[str, Any]:
+    """Atomically mark an incident as executing so concurrent requests cannot run the action twice.
+
+    The claim is committed before the slow Kubernetes call, so the database is not locked while
+    the executor waits for the rollout to verify.
+    """
+    with get_db_connection() as conn:
+        row = _fetch_incident(conn, incident_id)
+        if bool(row["executed"]):
+            raise HTTPException(status_code=409, detail="incident has already been executed")
+        if require_approval and row["approval_status"] != "approved":
+            raise HTTPException(status_code=409, detail="incident must be approved before execution")
+        if row["recommended_action"] not in EXECUTABLE_ACTIONS:
+            raise HTTPException(status_code=409, detail="incident has no executable recommended action")
+        claimed = conn.execute(
+            """
+            UPDATE incidents SET execution_status = 'running'
+            WHERE id = ? AND executed = 0 AND COALESCE(execution_status, '') != 'running'
+              AND (? = 0 OR approval_status = 'approved')
+            """,
+            (incident_id, int(require_approval)),
+        ).rowcount
+        if not claimed:
+            raise HTTPException(status_code=409, detail="incident execution is already in progress")
+        return _action_state(row)
+
+
+def _persist_execution(incident_id: int, execution_result: dict[str, Any], execution_trigger: str) -> None:
     executed = bool(execution_result.get("executed"))
-    executed_at = utc_now() if executed else None
-    conn.execute(
-        "UPDATE incidents SET executed = ?, executed_at = ?, execution_result = ?, execution_trigger = ? WHERE id = ?",
-        (int(executed), executed_at, json.dumps(execution_result, default=str), execution_trigger, incident_id),
-    )
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            UPDATE incidents
+            SET executed = ?, executed_at = ?, execution_result = ?, execution_trigger = ?, execution_status = ?
+            WHERE id = ?
+            """,
+            (
+                int(executed),
+                utc_now() if executed else None,
+                json.dumps(execution_result, default=str),
+                execution_trigger,
+                "succeeded" if executed else "failed",
+                incident_id,
+            ),
+        )
+
+
+def _run_claimed_execution(incident_id: int, state: dict[str, Any], execution_trigger: str) -> dict[str, Any]:
+    """Execute a claimed incident and always record the outcome, including unexpected errors."""
+    try:
+        execution_result = execute_recommended_action(state)
+    except Exception as error:
+        logger.exception("Execution failed for incident %s", incident_id)
+        execution_result = {"executed": False, "error": True, "reason": f"execution error: {error}"}
+    execution_result = {**execution_result, "execution_trigger": execution_trigger}
+    _persist_execution(incident_id, execution_result, execution_trigger)
+    return execution_result
 
 
 @app.get("/health")
@@ -163,9 +241,29 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/incidents", response_model=IncidentRecord)
+@app.post("/incidents", response_model=IncidentRecord, dependencies=[Depends(require_api_key)])
 def create_incident(payload: IncidentCreate) -> dict[str, Any]:
     return persist_incident(payload.model_dump())
+
+
+class AnalyzeRequest(BaseModel):
+    alert: str
+
+
+@app.post("/incidents/analyze", response_model=IncidentRecord, dependencies=[Depends(require_api_key)])
+def analyze_incident(payload: AnalyzeRequest) -> dict[str, Any]:
+    if not payload.alert.strip():
+        raise HTTPException(status_code=422, detail="alert must not be empty")
+    try:
+        # Imported lazily: the agent graph pulls in LLM, RAG, and ML dependencies that the
+        # review/approval API does not need, and runner imports persist_incident from this module.
+        from src.agents.runner import run_alert_and_persist
+
+        _, incident = run_alert_and_persist(payload.alert.strip())
+        return incident
+    except Exception as error:
+        logger.exception("Alert analysis failed")
+        raise HTTPException(status_code=500, detail=f"analysis failed: {error}") from error
 
 
 def persist_incident(fields: dict[str, Any], *, trusted_graph: bool = False) -> dict[str, Any]:
@@ -221,25 +319,23 @@ def persist_incident(fields: dict[str, Any], *, trusted_graph: bool = False) -> 
             ),
         )
         incident_id = cursor.lastrowid
-        state = {
-            "recommended_action": decision_fields.get("recommended_action"),
-            "action_namespace": decision_fields.get("action_namespace"),
-            "action_deployment_name": decision_fields.get("action_deployment_name"),
-            "action_replicas": decision_fields.get("action_replicas"),
-        }
-        if _auto_execute_enabled() and decision_fields.get("classification") == "ACCEPT" and _action_is_eligible(state):
-            logger.info("Auto-execution enabled: executing incident %s with action %s", incident_id, decision_fields.get("recommended_action"))
-            try:
-                execution_result = execute_recommended_action(state)
-            except Exception as error:
-                logger.exception("Auto-execution failed for incident %s", incident_id)
-                raise HTTPException(status_code=500, detail=f"incident auto-execution failed: {error}") from error
-            execution_result = {**execution_result, "execution_trigger": "auto"}
-            _persist_execution(conn, incident_id, execution_result, "auto")
-        elif _auto_execute_enabled():
-            logger.info("No auto-execution for incident %s: classification/action is not eligible", incident_id)
-        row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
 
+    # The incident is committed before any auto-execution, so an execution failure can never
+    # roll back the record of what the agent diagnosed.
+    state = {
+        "recommended_action": decision_fields.get("recommended_action"),
+        "action_namespace": decision_fields.get("action_namespace"),
+        "action_deployment_name": decision_fields.get("action_deployment_name"),
+        "action_replicas": decision_fields.get("action_replicas"),
+    }
+    if _auto_execute_enabled() and decision_fields.get("classification") == "ACCEPT" and _action_is_eligible(state):
+        logger.info("Auto-execution enabled: executing incident %s with action %s", incident_id, state["recommended_action"])
+        _run_claimed_execution(incident_id, _claim_execution(incident_id, require_approval=False), "auto")
+    elif _auto_execute_enabled():
+        logger.info("No auto-execution for incident %s: classification/action is not eligible", incident_id)
+
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=500, detail="Failed to create incident record")
     return _row_to_dict(row)
@@ -278,68 +374,45 @@ def get_incident_history(
 @app.get("/incidents/{incident_id}")
 def get_incident(incident_id: int) -> dict[str, Any]:
     with get_db_connection() as conn:
-        row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="incident not found")
+        row = _fetch_incident(conn, incident_id)
     return _row_to_dict(row)
 
 
-@app.post("/incidents/{incident_id}/execute")
+@app.post("/incidents/{incident_id}/execute", dependencies=[Depends(require_api_key)])
 def execute_incident(incident_id: int) -> dict[str, Any]:
+    state = _claim_execution(incident_id, require_approval=True)
+    execution_result = _run_claimed_execution(incident_id, state, "manual")
+    if execution_result.get("error"):
+        raise HTTPException(status_code=500, detail=f"incident {execution_result['reason']}")
+
     with get_db_connection() as conn:
-        row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="incident not found")
-        if bool(row["executed"]):
-            raise HTTPException(status_code=409, detail="incident has already been executed")
-        if row["approval_status"] != "approved":
-            raise HTTPException(status_code=409, detail="incident must be approved before execution")
-
-        state = {
-            "recommended_action": row["recommended_action"],
-            "action_namespace": row["action_namespace"],
-            "action_deployment_name": row["action_deployment_name"],
-            "action_replicas": row["action_replicas"],
-        }
-
-        try:
-            execution_result = execute_recommended_action(state)
-        except Exception as error:
-            raise HTTPException(status_code=500, detail=f"incident execution failed: {error}") from error
-
-        _persist_execution(conn, incident_id, execution_result, "manual")
-        updated_row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
-
-    if updated_row is None:
-        raise HTTPException(status_code=500, detail="Failed to persist execution result")
-    return _row_to_dict(updated_row)
+        row = _fetch_incident(conn, incident_id)
+    return _row_to_dict(row)
 
 
-@app.post("/incidents/{incident_id}/approve")
+@app.post("/incidents/{incident_id}/approve", dependencies=[Depends(require_api_key)])
 def approve_incident(incident_id: int) -> dict[str, Any]:
     return _set_approval_status(incident_id, "approved")
 
 
-@app.post("/incidents/{incident_id}/reject")
+@app.post("/incidents/{incident_id}/reject", dependencies=[Depends(require_api_key)])
 def reject_incident(incident_id: int) -> dict[str, Any]:
     return _set_approval_status(incident_id, "rejected")
 
 
 def _set_approval_status(incident_id: int, status: Literal["approved", "rejected"]) -> dict[str, Any]:
     with get_db_connection() as conn:
-        row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="incident not found")
+        row = _fetch_incident(conn, incident_id)
+        if bool(row["executed"]) or row["execution_status"] == "running":
+            raise HTTPException(status_code=409, detail="approval cannot change after execution has started")
+        if status == "approved" and row["classification"] == "REJECT":
+            raise HTTPException(status_code=409, detail="incidents the verifier classified as REJECT cannot be approved")
 
-        updated_at = utc_now()
         conn.execute(
             "UPDATE incidents SET approval_status = ?, approval_updated_at = ? WHERE id = ?",
-            (status, updated_at, incident_id),
+            (status, utc_now(), incident_id),
         )
-        row = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
-
-    if row is None:
-        raise HTTPException(status_code=500, detail="Failed to update incident record")
+        row = _fetch_incident(conn, incident_id)
     return _row_to_dict(row)
 
 

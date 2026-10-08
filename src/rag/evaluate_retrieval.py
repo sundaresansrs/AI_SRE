@@ -1,5 +1,6 @@
 """Evaluate top-k retrieval against a small hand-labeled runbook test set."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -12,7 +13,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COLLECTION_NAME = "runbook_chunks"
 MODEL_NAME = "all-MiniLM-L6-v2"
-QDRANT_URL = "http://localhost:6333"
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 VECTOR_SIZE = 384
 
 TEST_SET = [

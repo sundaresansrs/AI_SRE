@@ -4,6 +4,7 @@ pandas
 pyarrow
 numpy
 scikit-learn
+lightgbm
 torch
 mlflow
 langgraph

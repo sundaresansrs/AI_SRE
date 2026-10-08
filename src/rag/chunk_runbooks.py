@@ -1,7 +1,8 @@
 """
 Phase 3, Step 1: Chunk incident postmortem runbooks into 200-400 word passages.
 
-Reads every .txt file in data/runbooks/void/, splits on sentence boundaries
+Reads every .txt file in data/runbooks/void/ (public postmortems, not committed) and
+docs/runbooks/ (team-written runbooks, committed), splits on sentence boundaries
 targeting ~300 words per chunk, and writes data/processed/runbook_chunks.parquet.
 
 Files under 200 words total are kept as a single chunk.
@@ -21,7 +22,10 @@ sys.stdout.reconfigure(encoding="utf-8")
 # Configuration
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNBOOK_DIR = REPO_ROOT / "data" / "runbooks" / "void"
+RUNBOOK_DIRS = [
+    REPO_ROOT / "data" / "runbooks" / "void",
+    REPO_ROOT / "docs" / "runbooks",
+]
 OUTPUT_PATH = REPO_ROOT / "data" / "processed" / "runbook_chunks.parquet"
 TARGET_WORDS = 300
 MIN_WORDS = 200
@@ -100,10 +104,17 @@ def main() -> None:
     print("PHASE 3, STEP 1: CHUNK INCIDENT RUNBOOKS")
     print("=" * 80)
 
-    txt_files = sorted(RUNBOOK_DIR.glob("*.txt"))
-    print(f"\n1. Found {len(txt_files)} runbook files in {RUNBOOK_DIR}")
-    if len(txt_files) != 34:
-        raise RuntimeError(f"Expected 34 runbooks, found {len(txt_files)}")
+    txt_files: list[Path] = []
+    for runbook_dir in RUNBOOK_DIRS:
+        found = sorted(runbook_dir.glob("*.txt"))
+        print(f"\n1. Found {len(found)} runbook files in {runbook_dir}")
+        txt_files.extend(found)
+    if not txt_files:
+        raise RuntimeError("No runbook files found")
+    names = [f.name for f in txt_files]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise RuntimeError(f"Runbook file names must be unique across folders: {duplicates}")
 
     rows: list[dict] = []
     file_chunk_counts: dict[str, int] = {}

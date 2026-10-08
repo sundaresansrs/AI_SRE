@@ -9,9 +9,12 @@ from github import Auth, Github
 from github.GithubException import GithubException
 from mcp.server.fastmcp import FastMCP
 
-TOKEN = os.environ["GITHUB_PAT"]
+TOKEN = os.getenv("GITHUB_PAT", "").strip()
 mcp = FastMCP("github")
-github = Github(auth=Auth.Token(TOKEN))
+# Without a token the server still starts, so the agent can investigate with the other servers;
+# every tool then reports that GitHub is unavailable instead of crashing the whole MCP session.
+github = Github(auth=Auth.Token(TOKEN)) if TOKEN else None
+GITHUB_UNAVAILABLE = "GitHub is unavailable: the GITHUB_PAT environment variable is not set."
 
 
 def _timestamp(value: datetime | None) -> str | None:
@@ -27,6 +30,8 @@ def _github_error(error: GithubException) -> str:
 
 
 def _repo(repo_full_name: str) -> Any:
+    if github is None:
+        raise RuntimeError(GITHUB_UNAVAILABLE)
     return github.get_repo(repo_full_name)
 
 

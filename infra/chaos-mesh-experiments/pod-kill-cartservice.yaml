@@ -1,0 +1,14 @@
+# Kill one cartservice pod. The ReplicaSet recreates it, so the shop recovers on its own.
+# Apply: kubectl apply -f infra/chaos-mesh-experiments/pod-kill-cartservice.yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-cartservice
+  namespace: online-boutique
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces: [online-boutique]
+    labelSelectors:
+      app: cartservice

@@ -1,0 +1,10 @@
+Title: Team runbook: in-cluster DNS resolution failures for service names
+Category: Kubernetes / DNS
+
+Symptoms: services log no such host, temporary failure in name resolution, or server misbehaving when calling other services by name. Failures can be intermittent. Several unrelated workloads fail at the same time, which points at the cluster DNS rather than a single application. In Online Boutique the frontend cannot reach productcatalogservice or currencyservice by name.
+
+Diagnosis: check the coredns pods in the kube-system namespace: crashed, pending, or with a high restart count. Read the coredns logs for plugin errors, loops, or upstream timeouts. Check the coredns deployment desired and available replicas, and confirm the kube-dns service has endpoints. A recent change to the coredns ConfigMap is a frequent trigger.
+
+Remediation: if coredns pods are unhealthy because of a transient condition, restarting the coredns deployment is the standard first action. If only one replica is available, scale the deployment to two replicas for redundancy. If the ConfigMap contains a bad configuration, restoring the previous Corefile is required first, because a restart will fail again. Avoid restarting the application pods, they are not the cause.
+
+Verification: name lookups succeed from a test pod and all coredns replicas are Ready.

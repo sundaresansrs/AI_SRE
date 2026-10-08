@@ -1,0 +1,18 @@
+# Saturate CPU in the frontend container for 3 minutes so it hits its CPU limit and throttles.
+# Apply: kubectl apply -f infra/chaos-mesh-experiments/cpu-stress-frontend.yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: cpu-stress-frontend
+  namespace: online-boutique
+spec:
+  mode: all
+  duration: 3m
+  selector:
+    namespaces: [online-boutique]
+    labelSelectors:
+      app: frontend
+  stressors:
+    cpu:
+      workers: 2
+      load: 100

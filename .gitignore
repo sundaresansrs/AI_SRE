@@ -1,5 +1,6 @@
 # Python environments and caches
 venv/
+.venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -29,3 +30,19 @@ src/models/*.bin
 # Temporary local outputs
 tmp_*.csv
 *.err
+
+# Local incident database (created on first API start)
+src/api/ai_sre.db
+*.db-journal
+
+# Online Boutique is installed from its Helm chart, not vendored here
+.official-microservices-demo/
+
+# Terraform: local state, provider cache, logs, and the generated kubeconfig
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.log
+infra/terraform/.kube/
+infra/terraform/*.tfvars
+!infra/terraform/*.tfvars.example

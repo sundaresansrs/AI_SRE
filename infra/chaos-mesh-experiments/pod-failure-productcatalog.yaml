@@ -1,0 +1,16 @@
+# Make one productcatalogservice pod unavailable for 3 minutes (the pod stays, its container fails).
+# Frontend and recommendations that depend on it start returning errors.
+# Apply: kubectl apply -f infra/chaos-mesh-experiments/pod-failure-productcatalog.yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-failure-productcatalog
+  namespace: online-boutique
+spec:
+  action: pod-failure
+  mode: all
+  duration: 3m
+  selector:
+    namespaces: [online-boutique]
+    labelSelectors:
+      app: productcatalogservice

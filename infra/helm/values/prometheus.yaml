@@ -1,0 +1,29 @@
+# Light Prometheus for a laptop-sized kind cluster. Pod CPU/memory come from cAdvisor and pod
+# restart/OOM state from kube-state-metrics; both are scraped by the chart's default jobs.
+alertmanager:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false
+
+prometheus-node-exporter:
+  enabled: false
+
+kube-state-metrics:
+  enabled: true
+
+server:
+  global:
+    scrape_interval: 15s
+    evaluation_interval: 30s
+  retention: 6h
+  persistentVolume:
+    enabled: false
+  service:
+    type: NodePort
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

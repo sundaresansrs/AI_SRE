@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI-SRE review queue",
-  description: "Human review queue for AI-SRE incident classifications",
+  title: "AI-SRE Console",
+  description: "Review, approve, and execute AI-SRE incident recommendations",
 };
 
 export default function RootLayout({

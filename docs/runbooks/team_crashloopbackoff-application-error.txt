@@ -1,0 +1,10 @@
+Title: Team runbook: CrashLoopBackOff caused by an application error at startup
+Category: Kubernetes / Application Failure
+
+Symptoms: the pod status shows CrashLoopBackOff, the restart count rises, and the container exits with a non-zero exit code such as 1 or 2 (not 137). Kubernetes waits longer between each restart attempt, so the pod spends most of its time in the Waiting state with reason CrashLoopBackOff.
+
+Diagnosis: read the pod logs of the crashed container; the last lines normally contain the stack trace, a panic message, a failed connection to a dependency, or an invalid configuration value. Check pod events for the Back-off restarting failed container warning. Compare the failing version with the previous working deployment: a recent image tag or environment variable change is the most common trigger.
+
+Remediation: fix the cause named in the logs. If the application fails because a dependency such as a database or another microservice was unavailable during startup, restarting the deployment after the dependency recovers is enough, because the container will start cleanly on the next attempt. If the logs show a code defect or a bad configuration value, a restart will crash again; roll back to the previous image or correct the configuration instead. Scaling does not help a crash loop because every new replica crashes the same way.
+
+Verification: pods reach Running, the ready container count matches the container count, and the restart count stays constant for several minutes.

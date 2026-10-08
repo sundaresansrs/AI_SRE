@@ -2,6 +2,7 @@
 
 import os
 import json
+import logging
 import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ from langgraph.graph import END, START, StateGraph
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
+logger = logging.getLogger(__name__)
 
 try:
     GROQ_API_KEY = os.environ["GROQ_API_KEY"]
@@ -31,7 +33,7 @@ except KeyError:
     raise RuntimeError("GROQ_API_KEY environment variable is required") from None
 
 groq_client = Groq(api_key=GROQ_API_KEY)
-GROQ_MODEL = "openai/gpt-oss-20b"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 try:
     GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -39,11 +41,33 @@ except KeyError:
     raise RuntimeError("GEMINI_API_KEY environment variable is required") from None
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-GEMINI_MODEL = "models/gemini-2.5-flash"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 # Test-only switch; production runs leave this unset.
 SIMULATE_RATE_LIMIT_ON_NODE: str | None = None
-QDRANT_URL = "http://localhost:6333"
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+MCP_SERVER_NAMES = tuple(
+    name.strip()
+    for name in os.getenv("MCP_SERVERS", "kubernetes,github,observability").split(",")
+    if name.strip()
+)
+MCP_STARTUP_TIMEOUT_SECONDS = float(os.getenv("MCP_STARTUP_TIMEOUT_SECONDS", "30"))
+# Prefixes of the error strings the MCP servers return instead of raising. A tool call whose
+# result is one of these produced no real observation and must not count as evidence.
+TOOL_ERROR_PREFIXES = (
+    "unable to load the current kubeconfig",
+    "kubernetes apis are unavailable",
+    "kubernetes api error",
+    "kubernetes error:",
+    "github api error",
+    "github error:",
+    "github is unavailable",
+    "error: limit must be",
+    "prometheus connection error",
+    "prometheus api error",
+    "prometheus error:",
+    "error executing tool",
+)
 RAG_COLLECTION = "runbook_chunks"
 RAG_MODEL_NAME = "all-MiniLM-L6-v2"
 RAG_TOP_K = 3
@@ -66,6 +90,7 @@ def _get_anomaly_model() -> Any:
 
 VALID_RECOMMENDED_ACTIONS = ("restart_deployment", "scale_deployment", "none")
 GEMINI_SYNTHESIS_FAILURE_PREFIX = "Tool investigation completed successfully, but final diagnosis synthesis failed"
+GEMINI_UNAVAILABLE_PREFIX = "Gemini fallback was unavailable"
 
 
 class GraphState(TypedDict):
@@ -220,16 +245,29 @@ def _server_parameters(name: str) -> StdioServerParameters:
 
 
 async def _open_mcp_servers() -> Any:
+    """Start each configured MCP server, skipping any that fail so one outage cannot block analysis."""
     stack = AsyncExitStack()
     await stack.__aenter__()
     sessions: dict[str, ClientSession] = {}
-    for name in ("kubernetes", "github", "observability"):
-        read_stream, write_stream = await stack.enter_async_context(
-            stdio_client(_server_parameters(name))
-        )
-        session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
-        await session.initialize()
+    for name in MCP_SERVER_NAMES:
+        server_stack = AsyncExitStack()
+        try:
+            read_stream, write_stream = await server_stack.enter_async_context(
+                stdio_client(_server_parameters(name))
+            )
+            session = await server_stack.enter_async_context(ClientSession(read_stream, write_stream))
+            # A server that crashes on startup can leave initialize() waiting forever.
+            with anyio.fail_after(MCP_STARTUP_TIMEOUT_SECONDS):
+                await session.initialize()
+        except Exception as error:
+            await server_stack.aclose()
+            logger.warning("MCP server %r is unavailable and will be skipped: %s", name, error)
+            continue
+        stack.push_async_callback(server_stack.aclose)
         sessions[name] = session
+    if not sessions:
+        await stack.aclose()
+        raise RuntimeError(f"No MCP server could be started (tried: {', '.join(MCP_SERVER_NAMES)})")
     return stack, sessions
 
 
@@ -354,7 +392,7 @@ def _run_degraded_gemini_fallback(prompt: str, has_tool_evidence: bool = False) 
     try:
         text = _gemini_fallback_text(prompt)
     except Exception as error:
-        text = f"Gemini fallback was unavailable: {type(error).__name__}. No diagnosis was produced."
+        text = f"{GEMINI_UNAVAILABLE_PREFIX}: {type(error).__name__}. No diagnosis was produced."
     return text if has_tool_evidence else _degraded_fallback_diagnosis(text)
 
 
@@ -412,6 +450,9 @@ async def _execute_mcp_tool(
         arguments,
         expected_resources,
     )
+    if tool_name not in owners:
+        raw_result = f"Error executing tool {tool_name}: no connected MCP server provides this tool."
+        return raw_result, {"tool": tool_name, "args": corrected_arguments, "result": raw_result, "is_error": True}, argument_corrections
     result = await owners[tool_name].call_tool(tool_name, corrected_arguments)
     raw_result = _tool_result_value(result)
     tool_call = {
@@ -419,6 +460,8 @@ async def _execute_mcp_tool(
         "args": corrected_arguments,
         "result": raw_result,
     }
+    if getattr(result, "isError", False):
+        tool_call["is_error"] = True
     if argument_corrections:
         tool_call["corrections"] = argument_corrections
     return raw_result, tool_call, argument_corrections
@@ -657,7 +700,18 @@ async def _run_log_analysis_with_tools(state: GraphState) -> tuple[str, str, lis
             for call in requested:
                 arguments = call.function.arguments
                 if isinstance(arguments, str):
-                    arguments = json.loads(arguments)
+                    try:
+                        arguments = json.loads(arguments or "{}")
+                    except json.JSONDecodeError as error:
+                        raw_result = f"Error executing tool {call.function.name}: arguments were not valid JSON ({error})."
+                        tool_calls.append({
+                            "tool": call.function.name,
+                            "args": {"raw_arguments": arguments},
+                            "result": raw_result,
+                            "is_error": True,
+                        })
+                        messages.append({"role": "tool", "tool_call_id": call.id, "content": raw_result})
+                        continue
                 raw_result, tool_call, argument_corrections = await _execute_mcp_tool(
                     call.function.name,
                     arguments,
@@ -715,7 +769,10 @@ def _run_log_analysis(state: GraphState) -> GraphState:
     updated_state["diagnosis"] = diagnosis
     updated_state["diagnosis_degraded"] = (
         provider == "gemini"
-        and (not tool_calls or diagnosis.startswith(GEMINI_SYNTHESIS_FAILURE_PREFIX))
+        and (
+            not tool_calls
+            or diagnosis.startswith((GEMINI_SYNTHESIS_FAILURE_PREFIX, GEMINI_UNAVAILABLE_PREFIX))
+        )
     )
     return updated_state
 
@@ -1006,9 +1063,22 @@ def _max_rag_score(retrieved_chunks: list[dict[str, Any]]) -> float:
     return max(scores, default=0.0)
 
 
+def _is_tool_error(call: dict[str, Any]) -> bool:
+    if call.get("is_error"):
+        return True
+    result = call.get("result")
+    if isinstance(result, dict) and "error" in result:
+        return True
+    if isinstance(result, str):
+        return result.strip().lower().startswith(TOOL_ERROR_PREFIXES)
+    if isinstance(result, list) and result and all(isinstance(item, str) for item in result):
+        return all(item.strip().lower().startswith(TOOL_ERROR_PREFIXES) for item in result)
+    return False
+
+
 def _has_real_tool_evidence(tool_calls: list[dict[str, Any]]) -> bool:
     for call in tool_calls or []:
-        if not isinstance(call, dict):
+        if not isinstance(call, dict) or _is_tool_error(call):
             continue
         result = call.get("result")
         if result is None:
@@ -1041,12 +1111,19 @@ def classify_verifier_state(state: GraphState) -> tuple[float, str]:
 
 def verifier_node(state: GraphState) -> GraphState:
     rag_score, classification = classify_verifier_state(state)
+    # The label comes from the deterministic gate above; the LLM only explains it, so the stored
+    # reasoning can never contradict the stored classification.
     explanation, provider = call_llm_with_fallback(
-        f"Assess confidence in the proposed fix. Respond with ACCEPT, REVIEW, or REJECT "
-        f"and brief reasoning.\nAlert: {state['alert']}\nPlan: {state['plan']}\n"
+        f"A deterministic trust gate has already classified this proposed fix as {classification}. "
+        f"In at most three sentences, explain to the human reviewer why {classification} is the right "
+        f"label, citing the measured evidence below. Start your answer with \"{classification}\". "
+        f"Do not give a different verdict.\n"
+        f"Alert: {state['alert']}\nPlan: {state['plan']}\n"
         f"Diagnosis: {state['diagnosis']}\nProposed fix: {state['proposed_fix']}\n"
         f"Measured evidence: rag_score={rag_score:.6f}, tool_evidence_present={_has_real_tool_evidence(state.get('tool_calls', []))}, "
-        f"rag_weak_threshold={RAG_WEAK_THRESHOLD:.2f}, rag_strong_threshold={RAG_STRONG_THRESHOLD:.2f}",
+        f"diagnosis_degraded={bool(state.get('diagnosis_degraded'))}, "
+        f"gate rules: ACCEPT needs real tool evidence and rag_score >= {RAG_STRONG_THRESHOLD:.2f}; "
+        f"REJECT means no tool evidence and no runbook match; everything else is REVIEW.",
         "verifier",
     )
     updated_state = dict(state)

@@ -1,0 +1,10 @@
+Title: Team runbook: pod stuck Pending with FailedScheduling because of insufficient CPU or memory
+Category: Kubernetes / Scheduling
+
+Symptoms: a pod stays in the Pending phase and never starts. Pod events show FailedScheduling with a message such as 0/1 nodes are available: 1 Insufficient memory or 1 Insufficient cpu. The deployment reports desired replicas greater than available replicas, and there are no container logs because no container was created.
+
+Diagnosis: read the pod events and note which resource is insufficient. Compare the pod resource requests with what the node has left after all other pods. A request larger than the whole node can never be scheduled. Also check for node taints, node selectors, or affinity rules that exclude every node, because those produce a different FailedScheduling message.
+
+Remediation: reduce the resource requests of the pending pod, free capacity by scaling down less important deployments, or add nodes. Scaling the stuck deployment down to fewer replicas can relieve pressure on a small cluster. Restarting the deployment does not help because the new pod has the same request and stays Pending. Scaling the deployment up makes it worse because every additional replica is also Pending. A human should decide which workloads to shrink.
+
+Verification: the pod is scheduled, moves to Running, and available replicas equal desired replicas.

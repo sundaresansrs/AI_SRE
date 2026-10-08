@@ -15,7 +15,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INPUT_PATH = REPO_ROOT / "data" / "processed" / "runbook_chunks.parquet"
 OUTPUT_PATH = REPO_ROOT / "data" / "processed" / "runbook_embeddings.parquet"
 MODEL_NAME = "all-MiniLM-L6-v2"
-EXPECTED_ROWS = 34
 EXPECTED_DIM = 384
 
 
@@ -28,8 +27,9 @@ def main() -> None:
     missing_columns = required_columns - set(chunks.columns)
     if missing_columns:
         raise ValueError(f"Input is missing required columns: {sorted(missing_columns)}")
-    if len(chunks) != EXPECTED_ROWS:
-        raise ValueError(f"Expected {EXPECTED_ROWS} input rows, found {len(chunks)}")
+    expected_rows = len(chunks)
+    if expected_rows == 0:
+        raise ValueError("Input has no chunks; run chunk_runbooks.py first")
 
     model = SentenceTransformer(MODEL_NAME, device=device)
     vectors = model.encode(
@@ -39,9 +39,9 @@ def main() -> None:
     )
     vectors = np.asarray(vectors, dtype=np.float32)
 
-    if vectors.shape != (EXPECTED_ROWS, EXPECTED_DIM):
+    if vectors.shape != (expected_rows, EXPECTED_DIM):
         raise ValueError(
-            f"Expected embedding shape {(EXPECTED_ROWS, EXPECTED_DIM)}, found {vectors.shape}"
+            f"Expected embedding shape {(expected_rows, EXPECTED_DIM)}, found {vectors.shape}"
         )
     if not np.isfinite(vectors).all():
         raise ValueError("At least one embedding contains NaN or infinite values")
@@ -57,7 +57,7 @@ def main() -> None:
 
     persisted = pd.read_parquet(OUTPUT_PATH)
     persisted_vectors = np.asarray(persisted["embedding"].tolist(), dtype=np.float32)
-    if len(persisted) != EXPECTED_ROWS or persisted_vectors.shape != (EXPECTED_ROWS, EXPECTED_DIM):
+    if len(persisted) != expected_rows or persisted_vectors.shape != (expected_rows, EXPECTED_DIM):
         raise ValueError("Persisted embedding output has an unexpected shape")
     if not np.isfinite(persisted_vectors).all() or np.any(np.all(persisted_vectors == 0, axis=1)):
         raise ValueError("Persisted output contains an invalid embedding")

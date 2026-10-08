@@ -1,5 +1,6 @@
 """Load embedded runbook chunks into a local Qdrant collection and smoke-test it."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -17,8 +18,7 @@ EMBEDDINGS_PATH = REPO_ROOT / "data" / "processed" / "runbook_embeddings.parquet
 COLLECTION_NAME = "runbook_chunks"
 MODEL_NAME = "all-MiniLM-L6-v2"
 VECTOR_SIZE = 384
-EXPECTED_POINTS = 34
-QDRANT_URL = "http://localhost:6333"
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 
 
 def main() -> None:
@@ -29,14 +29,15 @@ def main() -> None:
     chunks = pd.read_parquet(CHUNKS_PATH)
     embeddings = pd.read_parquet(EMBEDDINGS_PATH)
     merged = chunks.merge(embeddings, on="chunk_id", how="inner", validate="one_to_one")
-    if len(chunks) != EXPECTED_POINTS or len(embeddings) != EXPECTED_POINTS:
-        raise ValueError("Both parquet inputs must contain exactly 34 rows")
-    if len(merged) != EXPECTED_POINTS:
-        raise ValueError(f"Expected 34 joined rows, found {len(merged)}")
+    expected_points = len(chunks)
+    if expected_points == 0 or len(embeddings) != expected_points:
+        raise ValueError("Chunks and embeddings must be non-empty and have the same number of rows")
+    if len(merged) != expected_points:
+        raise ValueError(f"Expected {expected_points} joined rows, found {len(merged)}")
 
     vectors = np.asarray(merged["embedding"].tolist(), dtype=np.float32)
-    if vectors.shape != (EXPECTED_POINTS, VECTOR_SIZE):
-        raise ValueError(f"Expected vector shape {(EXPECTED_POINTS, VECTOR_SIZE)}, found {vectors.shape}")
+    if vectors.shape != (expected_points, VECTOR_SIZE):
+        raise ValueError(f"Expected vector shape {(expected_points, VECTOR_SIZE)}, found {vectors.shape}")
     if not np.isfinite(vectors).all() or np.any(np.all(vectors == 0, axis=1)):
         raise ValueError("Input embeddings contain NaN/infinite values or an all-zero vector")
 
@@ -65,8 +66,8 @@ def main() -> None:
 
     point_count = client.count(collection_name=COLLECTION_NAME, exact=True).count
     print(f"Final point count: {point_count}")
-    if point_count != EXPECTED_POINTS:
-        raise ValueError(f"Expected {EXPECTED_POINTS} points after upsert, found {point_count}")
+    if point_count != expected_points:
+        raise ValueError(f"Expected {expected_points} points after upsert, found {point_count}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = SentenceTransformer(MODEL_NAME, device=device)
